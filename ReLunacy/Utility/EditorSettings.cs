@@ -55,6 +55,8 @@ public class EditorSettings
     public bool RenderUFrags;
     public bool RenderFoliage;
     public bool RenderVolumes;
+    public bool RenderTieCollision;
+    public bool RenderWorldCollision;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -157,6 +159,8 @@ public class EditorSettings
         RenderUFrags = true;
         RenderFoliage = true;
         RenderVolumes = true;
+        RenderTieCollision = false;
+        RenderWorldCollision = false;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;

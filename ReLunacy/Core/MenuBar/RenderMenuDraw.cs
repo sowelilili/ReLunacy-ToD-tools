@@ -22,6 +22,8 @@ internal static class RenderMenuDraw
         settings.RenderUFrags = em.renderUFrags;
         settings.RenderFoliage = em.renderFoliage;
         settings.RenderVolumes = em.renderVolumes;
+        settings.RenderTieCollision = em.renderTieCollision;
+        settings.RenderWorldCollision = em.renderWorldCollision;
         settings.RenderBoundingSpheres = em.renderBoundingSpheres;
         settings.MobyDistanceCullingEnabled = em.MobyDistanceCullingEnabled;
         settings.SaveSettingsToFile();
@@ -60,6 +62,24 @@ internal static class RenderMenuDraw
         if (!ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderVolumes"), "", EntityManager.Singleton.renderVolumes)) return;
         EntityManager.Singleton.renderVolumes = !EntityManager.Singleton.renderVolumes;
         PersistRenderSettings();
+    }
+
+    /// <summary>Tools of Destruction collision (collision.dat), split the way the file splits it: TIE
+    /// placements' collision and the rest of the level's. Greyed out when the open level has none.</summary>
+    internal static void ShowCollision()
+    {
+        var em = EntityManager.Singleton;
+        bool available = LunaWindow.Instance.AssetManager?.Collision != null;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderTieCollision"), "", em.renderTieCollision, available))
+        {
+            em.renderTieCollision = !em.renderTieCollision;
+            PersistRenderSettings();
+        }
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_RenderWorldCollision"), "", em.renderWorldCollision, available))
+        {
+            em.renderWorldCollision = !em.renderWorldCollision;
+            PersistRenderSettings();
+        }
     }
 
     internal static void ShowBoundingSpheres()

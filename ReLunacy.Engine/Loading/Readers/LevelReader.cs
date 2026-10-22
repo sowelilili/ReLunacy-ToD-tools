@@ -30,6 +30,7 @@ public sealed class LevelReader
     private Assets.Lighting.LightingEnvironment? _lightingEnvironment;
     private IReadOnlyList<Assets.Sky.LevelSky>? _skies;
     private Assets.Lighting.LevelFog? _levelFog;
+    private Assets.Collision.TodCollision? _collision;
 
     private readonly Games.GameDefinition? _gameDefinition;
 
@@ -131,6 +132,9 @@ public sealed class LevelReader
         if (_fileManager.isOld && _lightingEnvironment != null && _levelFog?.Bloom is { } oldBloom)
             _lightingEnvironment.Bloom = oldBloom;
 
+        // Old engine: collision.dat, drawn by the Render menu's collision toggles.
+        _collision = new CollisionReader(_fileManager).Read();
+
         progressCallback?.Invoke("Loading remaining textures...", 0.95f);
         // Every texture the loader read from textures.dat/highmips.dat, not just the ones
         // referenced by a shader actually used by the geometry above - see MaterialReader.GetAllTextures.
@@ -161,7 +165,8 @@ public sealed class LevelReader
             lightingEnvironment: _lightingEnvironment,
             skies: _skies,
             gameDefinition: _gameDefinition,
-            levelFog: _levelFog);
+            levelFog: _levelFog,
+            collision: _collision);
     }
 
     public IReadOnlyDictionary<ulong, Assets.Mobys.Moby> Mobys => _mobys ?? [];
@@ -230,6 +235,9 @@ public sealed class LevelData
     /// Games.GameDefinitions.FromLevelPath); null otherwise.</summary>
     public Games.GameDefinition? GameDefinition { get; }
 
+    /// <summary>Old engine: the level's collision.dat. Null on the new engine or a level without it.</summary>
+    public Assets.Collision.TodCollision? Collision { get; }
+
     /// <summary>The first of <see cref="Skies"/>: the sky retail shows before any set_sky().</summary>
     public Assets.Sky.SkyData Sky => Skies.Count != 0 ? Skies[0].Data : Assets.Sky.SkyData.Empty;
 
@@ -250,7 +258,8 @@ public sealed class LevelData
         Assets.Lighting.LightingEnvironment? lightingEnvironment = null,
         IReadOnlyList<Assets.Sky.LevelSky>? skies = null,
         Games.GameDefinition? gameDefinition = null,
-        Assets.Lighting.LevelFog? levelFog = null)
+        Assets.Lighting.LevelFog? levelFog = null,
+        Assets.Collision.TodCollision? collision = null)
     {
         Mobys = mobys;
         Ties = ties;
@@ -269,5 +278,6 @@ public sealed class LevelData
         Skies = skies ?? [];
         GameDefinition = gameDefinition;
         LevelFog = levelFog;
+        Collision = collision;
     }
 }

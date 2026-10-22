@@ -208,6 +208,8 @@ public class LunaWindow : IDisposable
         em.renderUFrags = EditorSettings.RenderUFrags;
         em.renderFoliage = EditorSettings.RenderFoliage;
         em.renderVolumes = EditorSettings.RenderVolumes;
+        em.renderTieCollision = EditorSettings.RenderTieCollision;
+        em.renderWorldCollision = EditorSettings.RenderWorldCollision;
         em.renderBoundingSpheres = EditorSettings.RenderBoundingSpheres;
         em.MobyDistanceCullingEnabled = EditorSettings.MobyDistanceCullingEnabled;
 
@@ -549,6 +551,8 @@ public class LunaWindow : IDisposable
             RenderMenuDraw.ShowFoliage();
             RenderMenuDraw.ShowVolumes();
             RenderMenuDraw.ShowBoundingSpheres();
+            ImGui.Separator();
+            RenderMenuDraw.ShowCollision();
             ImGui.Separator();
             RenderMenuDraw.ZoneVisibility();
             RenderMenuDraw.SkyVisibility();

@@ -18,6 +18,10 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderFoliage = true;
     public bool renderVolumes = true;
+    /// <summary>Tools of Destruction collision (collision.dat): TIE placements' and the world's. Off by
+    /// default; the geometry is always in the captured scene, so flipping these does not rebuild it.</summary>
+    public bool renderTieCollision = false;
+    public bool renderWorldCollision = false;
     /// <summary>Not currently drawn; the raw-Vulkan renderer has no debug-shape pass yet. Kept for when one is added.</summary>
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;

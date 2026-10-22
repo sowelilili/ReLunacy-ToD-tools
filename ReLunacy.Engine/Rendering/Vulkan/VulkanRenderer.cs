@@ -404,6 +404,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly Vector4[] _matPermutation;     // uMat5.w normal-map permutation, uMat6 detail state
     private readonly Vector4[] _matMobyTint;        // uMat7 new-engine Moby tint (rgb, applies)
     private readonly float[] _matAlphaRef;     // per-mode alpha-test reference (GEQUAL), 0 = no test
+    private readonly bool[] _matForceUnlit;    // collision debug materials: always the unlit path (VkMaterialDesc.IsCollision)
     // Bucket boundaries in the mode-sorted instance list: [0,_overStart) opaque+cutout,
     // [_overStart,_addStart) over-blended (WBOIT), [_addStart,_softStart) additive,
     // [_softStart,_billStart) soft-edge (drawn twice: depth prepass + WBOIT),
@@ -650,8 +651,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         _matPermutation = new Vector4[materials.Count];
         _matMobyTint = new Vector4[materials.Count];
         _matAlphaRef = new float[materials.Count];
+        _matForceUnlit = new bool[materials.Count];
         for (int i = 0; i < materials.Count; i++)
         {
+            _matForceUnlit[i] = materials[i].IsCollision;
             var mode = EffectiveRenderMode(materials[i]);
             // Alpha-test references are HARDCODED per mode by the engine, not per material - the old
             // ShaderMetadata 0x20 "alphaClip" turned out to be an RGB parameter, not a threshold
@@ -789,6 +792,8 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 Scene.EntityTie => SceneEntityKind.Tie,
                 Scene.EntityUFrag => SceneEntityKind.UFrag,
                 Scene.EntityFoliage => SceneEntityKind.Foliage,
+                Assets.Collision.CollisionInstance { IsTie: true } => SceneEntityKind.TieCollision,
+                Assets.Collision.CollisionInstance => SceneEntityKind.WorldCollision,
                 _ => SceneEntityKind.Other,
             });
             _instDisplayDist[i] = displayDistance;
@@ -843,7 +848,9 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         long tSamplers = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
         // A scene whose every material is untextured (e.g. a preview of editor-helper geometry) still
         // needs one image to bind; a neutral 1x1 white stands in instead of failing the whole renderer.
-        if (!materials.Any(m => (m.Albedo ?? m.Normal ?? m.Props ?? m.LightColour ?? m.LightDir) != null))
+        // Collision materials bind it on every slot (see CreateDescriptors), so they need it too.
+        if (!materials.Any(m => (m.Albedo ?? m.Normal ?? m.Props ?? m.LightColour ?? m.LightDir) != null) ||
+            materials.Any(m => m.IsCollision))
             _fallbackTexture = CreateFallbackTexture(graphicsDevice);
         CreateDescriptors(materials);
         long tDescriptors = vsw.ElapsedMilliseconds - vt0; vt0 = vsw.ElapsedMilliseconds;
@@ -1162,11 +1169,21 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
         for (int i = 0; i < nMat; i++)
         {
             var m = materials[i];
-            v[0] = ViewFor(m.Albedo); v[1] = ViewFor(m.Normal); v[2] = ViewFor(m.Props);
-            v[3] = ViewFor(m.LightColour); v[4] = ViewFor(m.LightDir);
-            v[5] = ViewFor(m.Detail); v[6] = ViewFor(m.AuxiliaryA); v[7] = ViewFor(m.AuxiliaryB);
-            v[8] = ViewFor(m.Albedo2); v[9] = ViewFor(m.Normal2); v[10] = ViewFor(m.Props2);
-            v[11] = ViewFor(m.Detail2); v[12] = ViewFor(m.BlendMask);
+            if (m.IsCollision)
+            {
+                // Plain white everywhere: the unlit path shows albedo x vertex colour, and the first
+                // scene texture (the usual stand-in) would tint it.
+                VkImageView white = ViewFor(_fallbackTexture);
+                for (int bnd = 0; bnd < TexPerMaterial; bnd++) v[bnd] = white;
+            }
+            else
+            {
+                v[0] = ViewFor(m.Albedo); v[1] = ViewFor(m.Normal); v[2] = ViewFor(m.Props);
+                v[3] = ViewFor(m.LightColour); v[4] = ViewFor(m.LightDir);
+                v[5] = ViewFor(m.Detail); v[6] = ViewFor(m.AuxiliaryA); v[7] = ViewFor(m.AuxiliaryB);
+                v[8] = ViewFor(m.Albedo2); v[9] = ViewFor(m.Normal2); v[10] = ViewFor(m.Props2);
+                v[11] = ViewFor(m.Detail2); v[12] = ViewFor(m.BlendMask);
+            }
             for (int bnd = 0; bnd < TexPerMaterial; bnd++) _matViews[i * TexPerMaterial + bnd] = v[bnd];
             VkDescriptorSetLayout l1 = _matSetLayout;
             var alloc1 = new VkDescriptorSetAllocateInfo { descriptorPool = _descPool, descriptorSetCount = 1, pSetLayouts = &l1 };
@@ -1904,7 +1921,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
                 _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, drawPipeline);
                 boundPipeline = drawPipeline;
             }
-            bool instanceLit = _lit;
+            bool instanceLit = _lit && !_matForceUnlit[mat];
             if (_instCube[i] != boundCube && _cubeResourceCount > 1)
             {
                 boundCube = _instCube[i];

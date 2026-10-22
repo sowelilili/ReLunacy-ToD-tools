@@ -98,6 +98,8 @@ public class View3D : DockedFrame
         if (em.renderTies) kinds |= Engine.Rendering.Vulkan.SceneEntityKind.Tie;
         if (em.renderUFrags) kinds |= Engine.Rendering.Vulkan.SceneEntityKind.UFrag;
         if (em.renderFoliage) kinds |= Engine.Rendering.Vulkan.SceneEntityKind.Foliage;
+        if (em.renderTieCollision) kinds |= Engine.Rendering.Vulkan.SceneEntityKind.TieCollision;
+        if (em.renderWorldCollision) kinds |= Engine.Rendering.Vulkan.SceneEntityKind.WorldCollision;
         return kinds;
     }
 

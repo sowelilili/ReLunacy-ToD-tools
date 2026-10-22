@@ -110,6 +110,9 @@ public struct VkMaterialDesc
     public float EmbeddedProgram;
     /// <summary>Class 0x13: the material's program bundle, drawn through RsxFragmentTranslator when it translates.</summary>
     public ReLunacy.Engine.Loading.Shaders.NewEngineShaderProgramBundle? ProgramBundle;
+    /// <summary>Collision debug material: every texture slot reads plain white and the draw is always
+    /// unlit, so the colour (and the face shading baked into it) comes from the vertex colour alone.</summary>
+    public bool IsCollision;
 }
 
 /// <summary>Which kind of scene object an instance came from, so the Render menu's per-type toggles can

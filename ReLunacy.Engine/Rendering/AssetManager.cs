@@ -152,6 +152,8 @@ public sealed class AssetManager : IDisposable
 
     public Dictionary<ulong, RenderModel[]> Mobys { get; } = []; // one Model per bangle
     public Dictionary<ulong, RenderModel> Ties { get; } = [];
+    /// <summary>The level's collision (old engine), drawn by the Render menu's collision toggles.</summary>
+    public Assets.Collision.TodCollision? Collision { get; }
     private readonly IReadOnlyDictionary<ulong, Assets.Mobys.Moby> _sourceMobys;
 
     /// <summary>Resolves a loaded Moby asset by TUID without requiring it to have a placement.</summary>
@@ -190,6 +192,10 @@ public sealed class AssetManager : IDisposable
         var sw = System.Diagnostics.Stopwatch.StartNew(); long t0 = 0;
 
         foreach (var (id, levels) in preparedTextures ?? PrepareTextures(level)) _prepared[id] = levels;
+
+        Collision = level.Collision;
+        if (Collision != null)
+            CollisionGeometry.Register(Collision);
 
         foreach (var (id, moby) in level.Mobys)
         {
@@ -1150,6 +1156,32 @@ public sealed class AssetManager : IDisposable
                     if (skel.Bones.Count > maxSkeletonBones) maxSkeletonBones = skel.Bones.Count;
                     skinnedOwners.Add(entity);
                 }
+            }
+        }
+
+        // Collision is always captured (hidden until a Render menu collision toggle shows it), so
+        // turning it on or off is a cull-mask change rather than a scene rebuild. NoHit keeps it out
+        // of picking: clicking through it still selects what it belongs to.
+        if (Collision != null && instances.Count != 0)
+        {
+            int collisionMat = -1;
+            foreach (var instance in Collision.Instances)
+            {
+                if (!VulkanSceneCapture.TryGet(instance.Mesh, out int gi))
+                    continue;
+                if (!geoRemap.TryGetValue(gi, out int geoSlot))
+                {
+                    geoSlot = verts.Count;
+                    verts.Add(VulkanSceneCapture.VertexData[gi]);
+                    idx.Add(VulkanSceneCapture.Indices[gi]);
+                    geoRemap[gi] = geoSlot;
+                }
+                if (collisionMat < 0)
+                {
+                    collisionMat = materials.Count;
+                    materials.Add(CollisionGeometry.Material);
+                }
+                instances.Add((geoSlot, collisionMat, instance.Transform, instance.BoundingSphere, instance, -1f, VulkanRenderer.NoHit));
             }
         }
 

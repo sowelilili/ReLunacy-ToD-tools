@@ -74,6 +74,9 @@ public class FileManager : IDisposable
 
             LoadFile("textures.dat", true);
             LoadFile("texstream.dat", true);
+
+            // Level collision: a raw blob, not IGHW (see Assets.Collision.TodCollision).
+            LoadFile("collision.dat", true);
         }
         else
         {
