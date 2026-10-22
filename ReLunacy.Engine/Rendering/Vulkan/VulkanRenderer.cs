@@ -34,10 +34,10 @@ public sealed unsafe partial class VulkanRenderer : IDisposable
     // layer of a two-layer TIE: albedo, normal, properties, detail and the blend mask.
     private const int TexPerMaterial = 13;
 
-    // Polygon offset for the non-opaque pass, matching the real game (same values in AssetManager,
-    // which applies them on the Bliss path).
-    private const float NonOpaqueDepthBias = -87f;
-    private const float NonOpaqueSlopeScaledDepthBias = -0.33972f;
+    // Polygon offset for the non-opaque pass: the game's own function (TodPolygonOffset) at the
+    // parameter the editor was tuned on, i.e. -86.97 units and a -0.33972 slope factor.
+    private static readonly float NonOpaqueDepthBias = TodPolygonOffset.Compute(TodPolygonOffset.CapturedParameter).Units;
+    private static readonly float NonOpaqueSlopeScaledDepthBias = TodPolygonOffset.Compute(TodPolygonOffset.CapturedParameter).Factor;
 
     // uBoneBase[gl_InstanceIndex] is the skinned instance's bone-palette region offset (see
     // TrySetAnimatedInstance); 0 for every non-animating instance, which is the shared identity

@@ -30,6 +30,7 @@ Because the European date format is better, please keep date format like this: `
   - ToD back faces culled as the game culls them, its non-opaque polygon offset, the new engine's normal/reflection/detail fade distances.
   - Known level names tell the game apart (`GameDefinitions.FromLevelPath`), which selects A Crack in Time's data layout.
   - The skinning added in #60 is kept: the lit, picking and outline vertex shaders still skin, the bone palette now sits at bindings 9 and 11.
+- The non-opaque polygon offset is now the game's own function (`TodPolygonOffset`, ToD EBOOT 0x00537090) instead of two magic numbers. No visual change: the old -87 / -0.33972 pair is that function at x = 68.158. Notes on what the new engine does instead are in the class summary.
 - 
 
 ## [v0.05.1](https://github.com/VELD-Dev/ReLunacy/releases/0.05.1) - 28-08-2026
