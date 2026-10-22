@@ -7,7 +7,7 @@ namespace ReLunacy.Engine.Assets.Collision;
 /// Tools of Destruction's level collision, the level's own collision.dat (a raw big-endian blob, not
 /// an IGHW container). Loaded by the EBOOT at "/app_home/%s/collision.dat"; 0x004C2970 warns "Packed
 /// level has no collision data" when the header's instance count is 0, and 0x004E0970 relocates it.
-/// See Docs/reverse/tod_collision.md for the full layout and how it was checked.
+/// See docs/reverse/tod_collision.md for the full layout and how it was checked.
 ///
 /// The file is a list of instances (0x80 bytes each) that place meshes stored once in a shared blob.
 /// TIE collision is one or more instances per TIE placement, carrying that placement's exact matrix;
