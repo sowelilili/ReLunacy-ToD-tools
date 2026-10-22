@@ -57,6 +57,8 @@ public class EditorSettings
     public bool RenderVolumes;
     public bool RenderTieCollision;
     public bool RenderWorldCollision;
+    public bool CollisionOutlines;
+    public ReLunacy.Engine.Rendering.CollisionColourMode CollisionColours;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -161,6 +163,7 @@ public class EditorSettings
         RenderVolumes = true;
         RenderTieCollision = false;
         RenderWorldCollision = false;
+        CollisionOutlines = false;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;

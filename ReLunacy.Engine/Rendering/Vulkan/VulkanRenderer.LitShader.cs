@@ -571,6 +571,23 @@ void shade(out vec3 litColor, out float litAlpha) {
     litColor = uMat1.z > 0.5
         ? (albedo * lighting + envFill)
         : albedoTex.rgb * fColor.rgb;
+    // Collision colour by flag bits (Render menu, uPostParams.z == 1): fUV = (triangle flags, face shade),
+    // see CollisionGeometry. Bit 0 red, bit 1 green, bit 2 blue, none dark grey (CollisionGeometry.FlagColour).
+    if (uPostParams.z > 0.5 && fColor.a > 1.5) {
+        int collisionFlags = int(fUV.x + 0.5);
+        vec3 flagColour = collisionFlags == 0 ? vec3(0.3)
+            : vec3((collisionFlags & 1) != 0 ? 1.0 : 0.15, (collisionFlags & 2) != 0 ? 1.0 : 0.15, (collisionFlags & 4) != 0 ? 1.0 : 0.15);
+        litColor = flagColour * fUV.y;
+    }
+    // Collision outlines (Render menu, uPostParams.y): collision vertices carry their barycentric in
+    // fUV2 and alpha 2 (CollisionGeometry.OutlineMarkerAlpha). Darken within ~1.5 px of an edge.
+    // fwidth is taken unconditionally: derivatives are undefined inside non-uniform control flow.
+    vec3 bary = vec3(fUV2, 1.0 - fUV2.x - fUV2.y);
+    vec3 baryWidth = fwidth(bary);
+    if (uPostParams.y > 0.5 && fColor.a > 1.5) {
+        vec3 inside = smoothstep(baryWidth * 0.5, baryWidth * 1.5, bary);
+        litColor *= min(min(inside.x, inside.y), inside.z);
+    }
     // Class 0x13 with a decoded program (uMat1.x, NewEngineEmbeddedPrograms): its own equation replaces
     // the generic one. 1 = family be10f7bae86f, a veil whose albedo holds masks: scrolling, facing-weighted
     // alpha over a flat (props.z + 0.25) * 4, faded out over the first 30 units of depth.

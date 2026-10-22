@@ -405,6 +405,13 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
     private readonly Vector4[] _matMobyTint;        // uMat7 new-engine Moby tint (rgb, applies)
     private readonly float[] _matAlphaRef;     // per-mode alpha-test reference (GEQUAL), 0 = no test
     private readonly bool[] _matForceUnlit;    // collision debug materials: always the unlit path (VkMaterialDesc.IsCollision)
+
+    /// <summary>Black outline on every collision triangle (Render menu). Reaches the shader as
+    /// LightData.PostParams.y; see CollisionGeometry for how collision vertices are marked.</summary>
+    public static bool CollisionOutlines { get; set; }
+
+    /// <summary>What collision is coloured by (Render menu). Reaches the shader as LightData.PostParams.z.</summary>
+    public static CollisionColourMode CollisionColours { get; set; }
     // Bucket boundaries in the mode-sorted instance list: [0,_overStart) opaque+cutout,
     // [_overStart,_addStart) over-blended (WBOIT), [_addStart,_softStart) additive,
     // [_softStart,_billStart) soft-edge (drawn twice: depth prepass + WBOIT),
@@ -2007,7 +2014,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             light.NewEngineReflectionFullLuminance = occlusion.Y;
         }
         _bloomActive = BloomWanted;
-        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, 0f, 0f, 0f);
+        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, CollisionOutlines ? 1f : 0f, (float)CollisionColours, 0f);
         WriteNewEngineFog(ref light);
         light.SceneTime = (float)_skyClock.Elapsed.TotalSeconds;
         *(LightData*)_lightMappings[_slot] = light;

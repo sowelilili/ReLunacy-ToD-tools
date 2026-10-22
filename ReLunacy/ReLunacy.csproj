@@ -31,8 +31,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Always, not PreserveNewest: the editor writes its loaded locale back into the output copy
+         while running (LM.SaveLanguages, adding unknown keys as ""), which makes that copy newer than
+         the source and would keep a newly added string from ever reaching the build. -->
     <Content Include="Locales/*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Link>Locales\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>
   </ItemGroup>
@@ -83,7 +86,7 @@
 
   <ItemGroup>
     <None Update="Locales\en.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 

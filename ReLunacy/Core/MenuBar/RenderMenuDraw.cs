@@ -80,6 +80,37 @@ internal static class RenderMenuDraw
             em.renderWorldCollision = !em.renderWorldCollision;
             PersistRenderSettings();
         }
+        // Lives in EditorSettings directly (like Game Shaders): View3D hands it to the renderer each frame.
+        var settings = LunaWindow.Instance.EditorSettings;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_CollisionOutlines"), "", settings.CollisionOutlines, available))
+        {
+            settings.CollisionOutlines = !settings.CollisionOutlines;
+            settings.SaveSettingsToFile();
+        }
+        if (!ImGui.BeginMenu(LM.Get("GUI_MenuItem_CollisionColours"), available)) return;
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_CollisionColoursMaterial"), "", settings.CollisionColours == CollisionColourMode.Material))
+        {
+            settings.CollisionColours = CollisionColourMode.Material;
+            settings.SaveSettingsToFile();
+        }
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_CollisionColoursFlags"), "", settings.CollisionColours == CollisionColourMode.Flags))
+        {
+            settings.CollisionColours = CollisionColourMode.Flags;
+            settings.SaveSettingsToFile();
+        }
+        if (settings.CollisionColours == CollisionColourMode.Flags)
+        {
+            ImGui.Separator();
+            // Legend: one swatch per bit, matching CollisionGeometry.FlagColour.
+            for (int bit = 0; bit < 3; bit++)
+            {
+                var c = CollisionGeometry.FlagColour(1 << bit);
+                ImGui.TextColored(new System.Numerics.Vector4(c, 1f), LM.Get("GUI_Label_CollisionFlagBit", bit));
+            }
+            ImGui.TextColored(new System.Numerics.Vector4(CollisionGeometry.FlagColour(0), 1f), LM.Get("GUI_Label_CollisionNoFlags"));
+            ImGui.TextDisabled(LM.Get("GUI_Label_CollisionFlagsMix"));
+        }
+        ImGui.EndMenu();
     }
 
     internal static void ShowBoundingSpheres()

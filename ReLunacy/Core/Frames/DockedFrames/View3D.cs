@@ -292,6 +292,8 @@ public class View3D : DockedFrame
                 OldEngineRenderOptions.FogEnabled = Program.Settings.OldEngineFog;
                 OldEngineRenderOptions.ReflectionsEnabled = Program.Settings.OldEngineReflections;
                 Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = Program.Settings.GameShaders;
+                Engine.Rendering.Vulkan.VulkanRenderer.CollisionOutlines = Program.Settings.CollisionOutlines;
+                Engine.Rendering.Vulkan.VulkanRenderer.CollisionColours = Program.Settings.CollisionColours;
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(
