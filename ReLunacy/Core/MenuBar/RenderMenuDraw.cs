@@ -98,6 +98,16 @@ internal static class RenderMenuDraw
             settings.CollisionColours = CollisionColourMode.Flags;
             settings.SaveSettingsToFile();
         }
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_CollisionColoursWrenchBoost"), "", settings.CollisionColours == CollisionColourMode.WrenchBoost))
+        {
+            settings.CollisionColours = CollisionColourMode.WrenchBoost;
+            settings.SaveSettingsToFile();
+        }
+        if (settings.CollisionColours == CollisionColourMode.WrenchBoost)
+        {
+            ImGui.Separator();
+            ImGui.TextColored(new System.Numerics.Vector4(1f, 0.55f, 0f, 1f), LM.Get("GUI_Label_CollisionWrenchBoost"));
+        }
         if (settings.CollisionColours == CollisionColourMode.Flags)
         {
             ImGui.Separator();

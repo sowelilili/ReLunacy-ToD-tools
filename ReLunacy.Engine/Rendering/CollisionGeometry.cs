@@ -12,6 +12,9 @@ public enum CollisionColourMode
     Material = 0,
     /// <summary>The triangle's flag bits: see <see cref="CollisionGeometry.FlagColour"/>.</summary>
     Flags = 1,
+    /// <summary>Flag bit 0 on a face within 1 degree of level in world space (Y up) in orange, the rest
+    /// dim grey. Decided per pixel in the lit shader, so rotated TIE placements are judged correctly.</summary>
+    WrenchBoost = 2,
 }
 
 /// <summary>

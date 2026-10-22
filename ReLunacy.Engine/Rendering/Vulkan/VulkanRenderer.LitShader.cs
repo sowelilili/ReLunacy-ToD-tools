@@ -573,11 +573,20 @@ void shade(out vec3 litColor, out float litAlpha) {
         : albedoTex.rgb * fColor.rgb;
     // Collision colour by flag bits (Render menu, uPostParams.z == 1): fUV = (triangle flags, face shade),
     // see CollisionGeometry. Bit 0 red, bit 1 green, bit 2 blue, none dark grey (CollisionGeometry.FlagColour).
+    // Wrench boost spots (uPostParams.z == 2): flag bit 0 on a face within 1 degree of level (world Y up),
+    // bright orange; everything else dim. The face normal comes from the world-position derivatives, so
+    // rotated TIE placements are judged in world space. Taken unconditionally, like fwidth below.
+    vec3 faceNormal = normalize(cross(dFdx(fWorldPos), dFdy(fWorldPos)));
     if (uPostParams.z > 0.5 && fColor.a > 1.5) {
         int collisionFlags = int(fUV.x + 0.5);
-        vec3 flagColour = collisionFlags == 0 ? vec3(0.3)
-            : vec3((collisionFlags & 1) != 0 ? 1.0 : 0.15, (collisionFlags & 2) != 0 ? 1.0 : 0.15, (collisionFlags & 4) != 0 ? 1.0 : 0.15);
-        litColor = flagColour * fUV.y;
+        if (uPostParams.z > 1.5) {
+            bool boostSpot = (collisionFlags & 1) != 0 && abs(faceNormal.y) >= 0.99985; // cos(1 deg)
+            litColor = boostSpot ? vec3(1.0, 0.55, 0.0) : vec3(0.25) * fUV.y;
+        } else {
+            vec3 flagColour = collisionFlags == 0 ? vec3(0.3)
+                : vec3((collisionFlags & 1) != 0 ? 1.0 : 0.15, (collisionFlags & 2) != 0 ? 1.0 : 0.15, (collisionFlags & 4) != 0 ? 1.0 : 0.15);
+            litColor = flagColour * fUV.y;
+        }
     }
     // Collision outlines (Render menu, uPostParams.y): collision vertices carry their barycentric in
     // fUV2 and alpha 2 (CollisionGeometry.OutlineMarkerAlpha). Darken within ~1.5 px of an edge.

@@ -301,6 +301,8 @@
         "GUI_MenuItem_CollisionColours": "Collision Colours",
         "GUI_MenuItem_CollisionColoursMaterial": "By Material",
         "GUI_MenuItem_CollisionColoursFlags": "By Triangle Flags",
+        "GUI_MenuItem_CollisionColoursWrenchBoost": "Show Wrench Boost Spots",
+        "GUI_Label_CollisionWrenchBoost": "Flag bit 0, level within 1 degree",
         "GUI_Label_CollisionFlagBit": "Flag bit {0}",
         "GUI_Label_CollisionNoFlags": "No flags",
         "GUI_Label_CollisionFlagsMix": "Several bits mix (bits 0+1 = yellow)",
