@@ -59,6 +59,9 @@ public class EditorSettings
     public bool RenderWorldCollision;
     public bool CollisionOutlines;
     public ReLunacy.Engine.Rendering.CollisionColourMode CollisionColours;
+    // Smallest tilt from vertical (degrees) the wallbounce colour mode highlights. 20 by default: below
+    // that, most of what passes is gently tilted rock that only boosts a little (docs/reverse/tod_wallbounce.md).
+    public float WallbounceMinTilt;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -164,6 +167,7 @@ public class EditorSettings
         RenderTieCollision = false;
         RenderWorldCollision = false;
         CollisionOutlines = false;
+        WallbounceMinTilt = 20f;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;

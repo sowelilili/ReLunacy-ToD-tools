@@ -141,6 +141,23 @@ public struct VkInstanceLight
         return light;
     }
 
+    /// <summary>Direction0.w value of a collision draw with per-triangle wallbounce data.</summary>
+    public const float CollisionDataFlag = 7f;
+
+    /// <summary>
+    /// A collision draw whose placement has wallbounce results (CollisionInstance.WallbounceTilt): one
+    /// prelight word per vertex holds its triangle's tilt, and Direction0.z is the offset from
+    /// gl_VertexIndex to this draw's first word, like <see cref="ForOldPrelit"/>. Collision is always unlit,
+    /// so nothing else reads this payload.
+    /// </summary>
+    public static VkInstanceLight ForCollisionData(int wordDelta)
+    {
+        var light = default(VkInstanceLight);
+        light.Direction0.W = CollisionDataFlag;
+        light.Direction0.Z = wordDelta;
+        return light;
+    }
+
     /// <summary>
     /// New-engine distance fades: TieShaderUse1 = (1/d0, 1/d1, 1/d2, 1) from the primitive's (TIE) or
     /// record's (UFrag) fade distances. The lit shader never reads TieShaderUse1 otherwise.

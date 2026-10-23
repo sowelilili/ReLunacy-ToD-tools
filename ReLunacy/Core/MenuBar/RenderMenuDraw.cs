@@ -108,6 +108,13 @@ internal static class RenderMenuDraw
             ImGui.Separator();
             ImGui.TextColored(new System.Numerics.Vector4(1f, 0.55f, 0f, 1f), LM.Get("GUI_Label_CollisionWrenchBoost"));
         }
+        if (ImGui.MenuItem(LM.Get("GUI_MenuItem_CollisionColoursWallbounce"), "", settings.CollisionColours == CollisionColourMode.WallbounceSpots))
+        {
+            settings.CollisionColours = CollisionColourMode.WallbounceSpots;
+            settings.SaveSettingsToFile();
+        }
+        if (settings.CollisionColours == CollisionColourMode.WallbounceSpots)
+            WallbounceOptions(settings);
         if (settings.CollisionColours == CollisionColourMode.Flags)
         {
             ImGui.Separator();
@@ -121,6 +128,33 @@ internal static class RenderMenuDraw
             ImGui.TextDisabled(LM.Get("GUI_Label_CollisionFlagsMix"));
         }
         ImGui.EndMenu();
+    }
+
+    /// <summary>The wallbounce mode's minimum-tilt slider, colour legend and analysis status.</summary>
+    private static void WallbounceOptions(EditorSettings settings)
+    {
+        ImGui.Separator();
+        float minTilt = settings.WallbounceMinTilt;
+        ImGui.SetNextItemWidth(160f);
+        if (ImGui.SliderFloat(LM.Get("GUI_Label_WallbounceMinTilt"), ref minTilt,
+                MathF.Ceiling(Engine.Assets.Collision.WallbounceAnalysis.BoostThresholdDegrees), 60f, "%.0f deg"))
+            settings.WallbounceMinTilt = minTilt;
+        // Saved once the drag ends rather than on every frame of it.
+        if (ImGui.IsItemDeactivatedAfterEdit())
+            settings.SaveSettingsToFile();
+        ImGui.TextColored(new System.Numerics.Vector4(1f, 0.9f, 0.1f, 1f), LM.Get("GUI_Label_WallbounceLowTilt"));
+        ImGui.TextColored(new System.Numerics.Vector4(1f, 0.1f, 0.05f, 1f), LM.Get("GUI_Label_WallbounceHighTilt"));
+
+        var assets = LunaWindow.Instance.AssetManager;
+        switch (assets?.WallbounceState)
+        {
+            case AssetManager.WallbounceAnalysisState.Running or AssetManager.WallbounceAnalysisState.NotStarted:
+                ImGui.TextDisabled(LM.Get("GUI_Label_WallbounceComputing", (int)(assets.WallbounceProgress * 100)));
+                break;
+            case AssetManager.WallbounceAnalysisState.Ready or AssetManager.WallbounceAnalysisState.Failed:
+                ImGui.TextDisabled(assets.WallbounceSummary ?? "");
+                break;
+        }
     }
 
     internal static void ShowBoundingSpheres()

@@ -19,13 +19,17 @@ public sealed class TodCollision
     public IReadOnlyList<CollisionMesh> Meshes { get; }
     public Vector3 BoundsMin { get; }
     public Vector3 BoundsMax { get; }
+    /// <summary>SHA-256 of the whole collision.dat, hex. Keys anything derived from it that is cached
+    /// on disk (see WallbounceAnalysis).</summary>
+    public string ContentHash { get; }
 
-    private TodCollision(IReadOnlyList<CollisionInstance> instances, IReadOnlyList<CollisionMesh> meshes, Vector3 boundsMin, Vector3 boundsMax)
+    private TodCollision(IReadOnlyList<CollisionInstance> instances, IReadOnlyList<CollisionMesh> meshes, Vector3 boundsMin, Vector3 boundsMax, string contentHash)
     {
         Instances = instances;
         Meshes = meshes;
         BoundsMin = boundsMin;
         BoundsMax = boundsMax;
+        ContentHash = contentHash;
     }
 
     // Header (0x80 bytes). 0x004E0970 reads +0x00..+0x58; the grid at +0x30 and the tables at
@@ -98,7 +102,8 @@ public sealed class TodCollision
 
         return new TodCollision(instances, meshes,
             new Vector3(F32(d, 0x40), F32(d, 0x44), F32(d, 0x48)),
-            new Vector3(F32(d, 0x50), F32(d, 0x54), F32(d, 0x58)));
+            new Vector3(F32(d, 0x50), F32(d, 0x54), F32(d, 0x58)),
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)));
     }
 
     internal static uint U32(ReadOnlySpan<byte> d, int o) => BinaryPrimitives.ReadUInt32BigEndian(d[o..]);
@@ -129,6 +134,10 @@ public sealed class CollisionInstance(Matrix4x4 transform, Vector4 boundingSpher
     /// <summary>Low 28 bits of +0x70. Counts up across the chunks of one TIE class; meaning not closed.</summary>
     public uint Id { get; } = id;
     public CollisionMesh Mesh { get; } = mesh;
+    /// <summary>Per triangle of <see cref="Mesh"/>, placed here: the tilt from vertical, in whole degrees,
+    /// of a triangle that can give a glitched wallbounce (see WallbounceAnalysis); 0 for one that cannot.
+    /// Null until the analysis has run, or when no triangle of this placement passes.</summary>
+    public byte[]? WallbounceTilt { get; set; }
 }
 
 /// <summary>

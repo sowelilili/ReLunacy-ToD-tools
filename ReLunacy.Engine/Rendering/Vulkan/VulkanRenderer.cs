@@ -117,6 +117,11 @@ void main() {
     InstanceLight il = uInstanceLights.values[gl_InstanceIndex];
     fPrelightChroma = vec3(0.0);
     fPrelightIntensity = vec4(0.0);
+    // Collision with wallbounce data (VkInstanceLight.ForCollisionData): its triangle's tilt, folded into
+    // fUV.x above the 5 flag bits below.
+    uint collisionTilt = 0u;
+    if (il.direction0.w > 6.5 && il.direction0.w < 7.5)
+        collisionTilt = uPrelight.words[gl_VertexIndex + int(il.direction0.z)];
     if (il.direction0.w > 4.5 && il.direction0.w < 5.5) {
         uint word = uPrelight.words[gl_VertexIndex + floatBitsToInt(il.tieShaderUseMeta.w)];
         float v = float(word & 0xFFu) * 256.0 + float((word >> 8) & 0xFFu);
@@ -155,6 +160,8 @@ void main() {
         vec2 d = inUV - il.uvAnim.xy;
         fUV = vec2(cos(a) * d.x - sin(a) * d.y, sin(a) * d.x + cos(a) * d.y) + il.uvAnim.xy + fract(il.uvScroll.xy * (frames / fps));
     }
+    // Collision vertices carry (triangle flags, shade) in inUV (CollisionGeometry); the tilt goes on top.
+    fUV.x += 32.0 * float(collisionTilt);
     fUV2 = inUV2;
     fColor = inColor;
     fInstanceIndex = gl_InstanceIndex;
@@ -412,6 +419,10 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
 
     /// <summary>What collision is coloured by (Render menu). Reaches the shader as LightData.PostParams.z.</summary>
     public static CollisionColourMode CollisionColours { get; set; }
+
+    /// <summary>Smallest tilt from vertical, in degrees, the wallbounce colour mode highlights (Render menu).
+    /// Reaches the shader as LightData.PostParams.w.</summary>
+    public static float WallbounceMinTilt { get; set; } = 20f;
     // Bucket boundaries in the mode-sorted instance list: [0,_overStart) opaque+cutout,
     // [_overStart,_addStart) over-blended (WBOIT), [_addStart,_softStart) additive,
     // [_softStart,_billStart) soft-edge (drawn twice: depth prepass + WBOIT),
@@ -2014,7 +2025,7 @@ void main() { o = vec4(uColor.rgb, 1.0); }";
             light.NewEngineReflectionFullLuminance = occlusion.Y;
         }
         _bloomActive = BloomWanted;
-        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, CollisionOutlines ? 1f : 0f, (float)CollisionColours, 0f);
+        light.PostParams = new Vector4(_bloomActive ? 1f : 0f, CollisionOutlines ? 1f : 0f, (float)CollisionColours, WallbounceMinTilt);
         WriteNewEngineFog(ref light);
         light.SceneTime = (float)_skyClock.Elapsed.TotalSeconds;
         *(LightData*)_lightMappings[_slot] = light;

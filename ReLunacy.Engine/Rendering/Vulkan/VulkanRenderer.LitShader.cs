@@ -576,10 +576,20 @@ void shade(out vec3 litColor, out float litAlpha) {
     // Wrench boost spots (uPostParams.z == 2): flag bit 0 on a face within 1 degree of level (world Y up),
     // bright orange; everything else dim. The face normal comes from the world-position derivatives, so
     // rotated TIE placements are judged in world space. Taken unconditionally, like fwidth below.
+    // Glitched wallbounces (uPostParams.z == 3): fUV.x / 32 is the triangle's tilt from vertical in degrees
+    // when WallbounceAnalysis passed it (the vertex shader adds it), 0 otherwise. Tilts at or above the
+    // Render menu minimum (uPostParams.w) go yellow -> red up to 50 degrees; everything else dim grey.
     vec3 faceNormal = normalize(cross(dFdx(fWorldPos), dFdy(fWorldPos)));
-    if (uPostParams.z > 0.5 && fColor.a > 1.5) {
-        int collisionFlags = int(fUV.x + 0.5);
-        if (uPostParams.z > 1.5) {
+    int collisionMode = int(uPostParams.z + 0.5);
+    if (collisionMode != 0 && fColor.a > 1.5) {
+        int collisionWord = int(fUV.x + 0.5);
+        int collisionFlags = collisionWord & 31;
+        float wallbounceTilt = float(collisionWord >> 5);
+        if (collisionMode == 3) {
+            bool spot = wallbounceTilt > 0.0 && wallbounceTilt >= uPostParams.w;
+            vec3 hot = mix(vec3(1.0, 0.9, 0.1), vec3(1.0, 0.1, 0.05), clamp((wallbounceTilt - 6.0) / 44.0, 0.0, 1.0));
+            litColor = spot ? hot * (0.55 + 0.45 * fUV.y) : vec3(0.22) * fUV.y;
+        } else if (collisionMode == 2) {
             bool boostSpot = (collisionFlags & 1) != 0 && abs(faceNormal.y) >= 0.99985; // cos(1 deg)
             litColor = boostSpot ? vec3(1.0, 0.55, 0.0) : vec3(0.25) * fUV.y;
         } else {

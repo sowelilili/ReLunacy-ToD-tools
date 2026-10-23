@@ -294,6 +294,11 @@ public class View3D : DockedFrame
                 Engine.Rendering.Vulkan.VulkanRenderer.UseRetailEmbeddedPrograms = Program.Settings.GameShaders;
                 Engine.Rendering.Vulkan.VulkanRenderer.CollisionOutlines = Program.Settings.CollisionOutlines;
                 Engine.Rendering.Vulkan.VulkanRenderer.CollisionColours = Program.Settings.CollisionColours;
+                Engine.Rendering.Vulkan.VulkanRenderer.WallbounceMinTilt = Program.Settings.WallbounceMinTilt;
+                // The wallbounce colours need their analysis: started (or loaded from cache) the first time
+                // the mode is on, and applied here once it is in.
+                if (Program.Settings.CollisionColours == Engine.Rendering.CollisionColourMode.WallbounceSpots)
+                    Core.LunaWindow.Instance.AssetManager?.EnsureWallbounceAnalysis();
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 vkStage.Frame(

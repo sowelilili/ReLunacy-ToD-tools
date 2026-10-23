@@ -154,6 +154,72 @@ public sealed class AssetManager : IDisposable
     public Dictionary<ulong, RenderModel> Ties { get; } = [];
     /// <summary>The level's collision (old engine), drawn by the Render menu's collision toggles.</summary>
     public Assets.Collision.TodCollision? Collision { get; }
+
+    public enum WallbounceAnalysisState { Unavailable, NotStarted, Running, Ready, Failed }
+
+    // Glitched-wallbounce analysis (Assets.Collision.WallbounceAnalysis). Started the first time the colour
+    // mode asks for it: loaded from the disk cache, or computed on a worker thread and cached. The results
+    // are handed to the collision instances on the main thread (EnsureWallbounceAnalysis), then the scene
+    // is recaptured once so the renderer uploads them.
+    private Task<(byte[]?[] Results, bool FromCache, long Milliseconds)>? _wallbounceTask;
+    private readonly CancellationTokenSource _wallbounceCancel = new();
+    private float _wallbounceProgress;
+    private bool _wallbounceApplied;
+
+    public WallbounceAnalysisState WallbounceState =>
+        Collision == null ? WallbounceAnalysisState.Unavailable
+        : _wallbounceApplied ? WallbounceAnalysisState.Ready
+        : _wallbounceTask == null ? WallbounceAnalysisState.NotStarted
+        : _wallbounceTask.IsFaulted ? WallbounceAnalysisState.Failed
+        : WallbounceAnalysisState.Running;
+
+    /// <summary>0..1 while computing.</summary>
+    public float WallbounceProgress => Volatile.Read(ref _wallbounceProgress);
+
+    /// <summary>One line for the Render menu once the analysis has finished.</summary>
+    public string? WallbounceSummary { get; private set; }
+
+    /// <summary>Starts the wallbounce analysis if it has not been, and applies its results once they are in.
+    /// Call from the main thread (View3D does, every frame the colour mode is on).</summary>
+    public void EnsureWallbounceAnalysis()
+    {
+        var collision = Collision;
+        if (collision == null || _wallbounceApplied) return;
+        if (_wallbounceTask == null)
+        {
+            var cancel = _wallbounceCancel.Token;
+            _wallbounceTask = Task.Run(() =>
+            {
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                if (Assets.Collision.WallbounceAnalysis.TryLoad(collision) is { } cached)
+                    return (cached, true, timer.ElapsedMilliseconds);
+                var results = Assets.Collision.WallbounceAnalysis.Run(collision, p => Volatile.Write(ref _wallbounceProgress, p), cancel);
+                long ms = timer.ElapsedMilliseconds;
+                try { Assets.Collision.WallbounceAnalysis.Save(collision, results); }
+                catch (Exception e) { Console.WriteLine($"Wallbounce: could not write the cache ({e.Message})."); }
+                return (results, false, ms);
+            }, cancel);
+            return;
+        }
+        if (!_wallbounceTask.IsCompleted) return;
+        if (_wallbounceTask.IsFaulted || _wallbounceTask.IsCanceled)
+        {
+            if (WallbounceSummary == null)
+            {
+                WallbounceSummary = $"Failed: {_wallbounceTask.Exception?.GetBaseException().Message ?? "cancelled"}";
+                Console.WriteLine($"Wallbounce analysis {WallbounceSummary}");
+            }
+            return;
+        }
+
+        var (perInstance, fromCache, ms) = _wallbounceTask.Result;
+        Assets.Collision.WallbounceAnalysis.Apply(collision, perInstance);
+        int triangles = perInstance.Sum(t => t?.Count(b => b != 0) ?? 0);
+        WallbounceSummary = $"{triangles:N0} triangle(s), " + (fromCache ? "from cache" : $"computed in {ms / 1000.0:0.0}s");
+        Console.WriteLine($"Wallbounce analysis: {WallbounceSummary}.");
+        _wallbounceApplied = true;
+        InvalidateSceneRenderer();
+    }
     private readonly IReadOnlyDictionary<ulong, Assets.Mobys.Moby> _sourceMobys;
 
     /// <summary>Resolves a loaded Moby asset by TUID without requiring it to have a placement.</summary>
@@ -1309,6 +1375,7 @@ public sealed class AssetManager : IDisposable
 
     public void Dispose()
     {
+        _wallbounceCancel.Cancel();
         // Safety net: the real teardown order is DisposeSceneRenderer() then this (see that method's
         // remarks) - SceneRenderer's descriptor sets reference the textures freed below, so it must
         // already be gone before they go. Idempotent (DisposeSceneRenderer already nulls it) - only

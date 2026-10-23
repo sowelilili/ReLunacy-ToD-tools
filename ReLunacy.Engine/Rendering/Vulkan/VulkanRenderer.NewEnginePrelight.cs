@@ -57,10 +57,22 @@ public sealed unsafe partial class VulkanRenderer
 
         var words = new List<uint>();
         var baseOf = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
-        int oldPrelit = 0;
+        int oldPrelit = 0, collisionData = 0;
         for (int i = 0; i < order.Length; i++)
         {
             var (g, _, _, _, owner, _, _) = instances[order[i]];
+            // Collision with wallbounce results: its triangle's tilt on each of its three (unshared) vertices.
+            if (owner is Assets.Collision.CollisionInstance { WallbounceTilt: { } tilts })
+            {
+                int collisionBase = words.Count;
+                foreach (byte tilt in tilts)
+                {
+                    words.Add(tilt); words.Add(tilt); words.Add(tilt);
+                }
+                lights[i] = VkInstanceLight.ForCollisionData(collisionBase - drawVertexOffset[i]);
+                collisionData++;
+                continue;
+            }
             // ToD: the unbaked placement's words, indexed by the primitive's first vertex in its TIE.
             if (owner is Scene.EntityTie { OldEnginePrelight: { } oldBytes, OldBakedLightScale: { } f } oldTie && f > 0f)
             {
@@ -112,6 +124,8 @@ public sealed unsafe partial class VulkanRenderer
 
         if (baseOf.Count > 0)
             Console.WriteLine($"[VkRenderer] TIE prelight: {baseOf.Count} placement(s) ({oldPrelit} old-engine), {words.Count} vertex word(s).");
+        if (collisionData > 0)
+            Console.WriteLine($"[VkRenderer] Wallbounce data on {collisionData} collision draw(s).");
         return words.Count > 0 ? [.. words] : [0u];
     }
 
