@@ -74,7 +74,11 @@ against 46% in plain order. Bounds checks cannot catch this, since they don't de
 
 Triangle: one u32. Indices in bits 18-26, 9-17, 0-8 (in that order), flags in bits 27-31 (not
 closed). No index is out of range and none are degenerate on any of the six levels checked. Winding is
-not consistent: cobalia's world floors face up and down about equally.
+consistent: `cross(b - a, c - a)` points out of the surface. About 99% of shared edges run in opposite
+directions in their two triangles (Stratus City, cobalia, metropolis), and most near-flat triangles face
+up; the ones facing down are ceilings and undersides. A mirrored placement (negative determinant) flips
+it. (An earlier note here said winding was inconsistent; that was measured before the vertex slot order
+was known, with scrambled vertices.)
 
 ## Open
 

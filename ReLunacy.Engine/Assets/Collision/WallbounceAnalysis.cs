@@ -9,7 +9,8 @@ namespace ReLunacy.Engine.Assets.Collision;
 /// The wall-jump push-off runs along the normal of whatever surface the wall probe hit. When that normal
 /// tilts upward by more than about 6 degrees, the jump's upward speed feeds back into the push-off speed
 /// faster than the push-off can bleed it down to 6.0, and Ratchet is launched. So a triangle counts when
-/// it is static collision with flag bit 0 clear, tilted upward past that threshold, and a Ratchet placed
+/// it is static collision with flag bit 0 clear, its outward normal tilted upward past that threshold
+/// (an overhang's points down, which only slows the push-off), and a Ratchet placed
 /// against it would pass the entry check (Hero_TryEnterWallJumpState, 0x0020822C):
 ///   - the probe (from 1.0 above the feet, swept along the facing) reaches this triangle first,
 ///   - the column from the feet to the head line is open,
@@ -21,7 +22,7 @@ namespace ReLunacy.Engine.Assets.Collision;
 public static class WallbounceAnalysis
 {
     /// <summary>Bumped whenever the checks below change, so stale caches are ignored.</summary>
-    public const int Version = 1;
+    public const int Version = 2;   // 2: outward normals (version 1 also counted overhangs)
 
     private const float ProbeHeight = 1.0f;     // hero+0x1450, the probe's origin above the feet
     private const float HeadHeight = 2.75f;     // TOC 0x8AB078 + 0x5B18
@@ -47,8 +48,9 @@ public static class WallbounceAnalysis
             start[i + 1] = start[i] + instances[i].Mesh.TriangleCount;
         int total = start[^1];
 
-        // Every triangle in world space. Winding is inconsistent in these files, so the normal is
-        // taken on its upward side.
+        // Every triangle in world space, with its outward normal: collision winding is consistent
+        // (cross(b - a, c - a) points out of the surface; ~99% of shared edges run opposite ways), and a
+        // mirrored placement flips it. An overhang's outward normal points down, so it never qualifies.
         var a = new Vector3[total];
         var e1 = new Vector3[total];
         var e2 = new Vector3[total];
@@ -60,6 +62,7 @@ public static class WallbounceAnalysis
         {
             var inst = instances[i];
             var mesh = inst.Mesh;
+            float outward = inst.Transform.GetDeterminant() < 0f ? -1f : 1f;
             for (int t = 0; t < mesh.TriangleCount; t++)
             {
                 int k = start[i] + t;
@@ -69,8 +72,7 @@ public static class WallbounceAnalysis
                 a[k] = p0; e1[k] = p1 - p0; e2[k] = p2 - p0;
                 Vector3 n = Vector3.Cross(e1[k], e2[k]);
                 float len = n.Length();
-                n = len > 0f ? n / len : Vector3.Zero;
-                normal[k] = n.Y < 0f ? -n : n;
+                normal[k] = len > 0f ? n * (outward / len) : Vector3.Zero;
                 flags[k] = mesh.TriangleFlags[t];
                 lo[k] = Vector3.Min(p0, Vector3.Min(p1, p2));
                 hi[k] = Vector3.Max(p0, Vector3.Max(p1, p2));

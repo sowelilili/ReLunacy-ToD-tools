@@ -41,9 +41,9 @@ public static class CollisionGeometry
 
     private static readonly Vector2[] CornerBarycentrics = [new(1f, 0f), new(0f, 1f), new(0f, 0f)];
 
-    // Mostly overhead, so floors read brightest and walls darken by the way they face. The file's
-    // winding is not consistent (cobalia's world floors face up and down about equally), so the
-    // shade uses |N.L| and both sides of a face look the same.
+    // Mostly overhead, so floors read brightest and walls darken by the way they face. The shade uses
+    // |N.L| so a face looks the same from either side: collision is often seen from behind (TIE shells,
+    // the camera inside a mesh), and the outward side is not the only one worth reading.
     private static readonly Vector3 ShadeDirection = Vector3.Normalize(new Vector3(0.35f, 1f, 0.55f));
 
     public static void Register(TodCollision collision)

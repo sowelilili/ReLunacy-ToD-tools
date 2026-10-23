@@ -89,6 +89,13 @@ Most passing triangles (23,556 of 24,943) are TIE collision. The model ignores R
 approach path and the timer check, so it marks where the entry check can pass, not where it is easy
 to set up.
 
+Those numbers flipped every normal to its upward side, on the belief that winding was inconsistent.
+It is consistent (docs/reverse/tod_collision.md), and the flip wrongly counted overhangs: a face
+leaning out over Ratchet has a downward outward normal, which only slows the push-off. With outward
+normals, Stratus City has **18,077** passing triangles (5,040 at 20 degrees or more, against 7,593
+before). The measured slope still passes: its outward normal from the file is (-0.812, 0.520, -0.264),
+the game's live wall normal to the third decimal.
+
 ## In ReLunacy
 
 Render > Collision Colours > Show Glitched Wallbounces runs the same check
@@ -96,4 +103,5 @@ Render > Collision Colours > Show Glitched Wallbounces runs the same check
 1.0 s for Stratus City on 12 threads, against 289 s in numpy) and colours passing triangles yellow
 to red by tilt, above a minimum tilt set by a slider (20 degrees by default). It runs once per level,
 the first time the mode is used, and caches the result in
-`%LOCALAPPDATA%\ReLunacy\Cache\wallbounce-v1-<hash of collision.dat>.bin`.
+`%LOCALAPPDATA%\ReLunacy\Cache\wallbounce-v2-<hash of collision.dat>.bin` (version 2 uses outward
+normals; version 1 files are ignored).
