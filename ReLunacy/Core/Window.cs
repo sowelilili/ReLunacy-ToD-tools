@@ -383,7 +383,17 @@ public class LunaWindow : IDisposable
             _finalizingLevelLoad = true;
         }
 
-        if (!_finalizingLevelLoad || AssetManager is null) return;
+        if (AssetManager is null) return;
+        if (!_finalizingLevelLoad)
+        {
+            // Textures can still be queued after the load (a material first built while capturing the
+            // scene, say). TryCaptureScene waits for an empty queue, so without this a scene that is
+            // invalidated later could never be captured again.
+            var lateSw = System.Diagnostics.Stopwatch.StartNew();
+            while (AssetManager.HasPendingUploads && lateSw.Elapsed.TotalMilliseconds < UploadBudgetMs)
+                AssetManager.UploadOnePendingTexture();
+            return;
+        }
 
         if (AssetManager.HasPendingUploads)
         {
