@@ -88,3 +88,12 @@ measured spot. By area that is 2.7% of the level's collision, and most of it is 
 Most passing triangles (23,556 of 24,943) are TIE collision. The model ignores Ratchet's real
 approach path and the timer check, so it marks where the entry check can pass, not where it is easy
 to set up.
+
+## In ReLunacy
+
+Render > Collision Colours > Show Glitched Wallbounces runs the same check
+(`ReLunacy.Engine/Assets/Collision/WallbounceAnalysis.cs`, a parallel C# port of the numpy script:
+1.0 s for Stratus City on 12 threads, against 289 s in numpy) and colours passing triangles yellow
+to red by tilt, above a minimum tilt set by a slider (20 degrees by default). It runs once per level,
+the first time the mode is used, and caches the result in
+`%LOCALAPPDATA%\ReLunacy\Cache\wallbounce-v1-<hash of collision.dat>.bin`.
