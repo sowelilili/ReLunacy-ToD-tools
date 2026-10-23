@@ -725,6 +725,10 @@ public class LunaWindow : IDisposable
         // this forced full sync, not CPU submission.
         using (FrameProfiler.Sample(FrameProfiler.GpuWaitPhase))
             graphicsDevice.WaitForIdle();
+        // The safe point AssetManager.InvalidateSceneRenderer defers to: this frame's ImGui draw (which may
+        // sample the scene image) is done on the GPU, and the scene recorded this frame has not been
+        // submitted yet (View3D.SubmitScene below skips a renderer that is gone). The next frame recaptures.
+        AssetManager?.FlushSceneRendererInvalidation();
         using (FrameProfiler.Sample(FrameProfiler.PresentPhase))
             graphicsDevice.SwapBuffers();
 
