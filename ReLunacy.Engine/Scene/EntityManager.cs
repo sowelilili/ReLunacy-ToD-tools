@@ -18,10 +18,27 @@ public class EntityManager : IDisposable
     public bool renderUFrags = true;
     public bool renderFoliage = true;
     public bool renderVolumes = true;
-    /// <summary>Tools of Destruction collision (collision.dat): TIE placements' and the world's. Off by
-    /// default; the geometry is always in the captured scene, so flipping these does not rebuild it.</summary>
-    public bool renderTieCollision = false;
-    public bool renderWorldCollision = false;
+    public bool renderCameras = true;
+    public bool renderControllers = true;
+    public bool renderPaths = true;
+
+    /// <summary>Bumped whenever an entity's own visibility (<see cref="Entity.allowRender"/>) is changed, for the
+    /// overlays built from the visible ones (paths, navmesh). Meshes and volumes read the flag every frame.</summary>
+    public int VisibilityVersion;
+
+    /// <summary>How paths are coloured, and the roles hidden (<see cref="Assets.LevelElements.PathRoles"/>). Bump
+    /// <see cref="VisibilityVersion"/> after changing either: the path lines are rebuilt on it.</summary>
+    public PathColorMode PathColorMode = PathColorMode.Role;
+    public readonly HashSet<string> HiddenPathRoles = [];
+
+    public bool IsPathShown(Assets.LevelElements.GameplayPath path) => !HiddenPathRoles.Contains(path.Role);
+    /// <summary>Off by default: the navmesh is an inspection overlay, not part of the level.</summary>
+    public bool renderNavmesh = false;
+    /// <summary>Off by default, like the navmesh: the level's static collision, drawn as an overlay.</summary>
+    public bool renderCollision = false;
+    /// <summary>What the collision overlay holds, for the Render menu's legend. Set by the View3D when
+    /// it uploads a level's collision; null when the level has none.</summary>
+    public Rendering.CollisionSummary? CollisionSummary;
     /// <summary>Not currently drawn; the raw-Vulkan renderer has no debug-shape pass yet. Kept for when one is added.</summary>
     public bool renderBoundingSpheres = false;
     public bool FrustumCullingEnabled = true;
@@ -36,7 +53,55 @@ public class EntityManager : IDisposable
     /// <summary>RGBA tint for a Volume's wireframe box, unselected/selected. Synced from
     /// EditorSettings by View3D each frame.</summary>
     public Vector4 VolumeColor = new(1f, 1f, 0f, 1f);
+
+    /// <summary>The kind key of volumes that are no Clue's shape, in <see cref="HiddenVolumeKinds"/>.</summary>
+    public const string PlainVolumeKind = "";
+    /// <summary>Volume kinds not drawn: Clue class names, or <see cref="PlainVolumeKind"/>. Per level, so not saved.</summary>
+    public readonly HashSet<string> HiddenVolumeKinds = [];
+    /// <summary>Editor layers whose volumes are not drawn.</summary>
+    public readonly HashSet<string> HiddenVolumeLayers = [];
+    /// <summary>Only the volumes of this Area or Scent are drawn, when set.</summary>
+    public (bool Scent, string Name)? VolumeGroupFilter;
+    public VolumeColorMode VolumeColorMode = VolumeColorMode.Kind;
+    /// <summary>Which shown volumes also get translucent faces in their colour.</summary>
+    public VolumeFillMode VolumeFillMode = VolumeFillMode.Death;
+    public float VolumeFillOpacity = 0.3f;
+    /// <summary>Draw the radius settings of the shown Clues as spheres (a moon's radius; ClueClasses.RadiiOf).</summary>
+    public bool ShowRadiusPreviews = true;
+
+    /// <summary>Whether <paramref name="volume"/> is drawn with faces under <see cref="VolumeFillMode"/>.</summary>
+    public bool IsVolumeFilled(Assets.LevelElements.Volume volume)
+    {
+        var hazard = volume.Clue is { } clue ? Assets.LevelElements.ClueClasses.Hazard(clue.ClassName) : Assets.LevelElements.ClueHazard.None;
+        // Where a gravity Clue acts (a moon's SpaceMoon sphere) is filled whenever faces are on: how far the moon's
+        // gravity reaches is the reason it is worth seeing. A volume that only has a role (a moon's area) is not.
+        if (volume.GravityRegion && VolumeFillMode != VolumeFillMode.None) return true;
+        return VolumeFillMode switch
+        {
+            VolumeFillMode.Death => hazard == Assets.LevelElements.ClueHazard.Death,
+            VolumeFillMode.Hazards => hazard != Assets.LevelElements.ClueHazard.None,
+            VolumeFillMode.Clues => volume.Clue != null,
+            VolumeFillMode.All => true,
+            _ => false,
+        };
+    }
+
+    public static string VolumeKind(Assets.LevelElements.Volume volume) => volume.Clue?.ClassName ?? volume.Role ?? PlainVolumeKind;
+
+    /// <summary>Whether the volume filters let <paramref name="volume"/> be drawn (and picked).</summary>
+    public bool IsVolumeShown(Assets.LevelElements.Volume volume)
+    {
+        if (HiddenVolumeKinds.Contains(VolumeKind(volume))) return false;
+        if (volume.Layer != null && HiddenVolumeLayers.Contains(volume.Layer)) return false;
+        if (VolumeGroupFilter is { } group && !(group.Scent ? volume.Scents : volume.Areas).Contains(group.Name)) return false;
+        return true;
+    }
+    /// <summary>Synced in from the app layer's settings, same as VolumeColor.</summary>
+    public Vector4 NavmeshColor = new(0.2f, 0.45f, 1f, 0.35f);
     public Vector4 VolumeSelectedColor = new(1f, 1f, 1f, 1f);
+
+    /// <summary>Bumped when an instance is added to or removed from a region, for whoever caches a list of them.</summary>
+    public static int StructureVersion { get; set; }
 
     public int MobysCount => Regions.Sum(r => r.MobyInstances.Size);
     public int VolumesCount => Regions.Sum(r => r.Volumes.Size);
@@ -49,7 +114,7 @@ public class EntityManager : IDisposable
     public List<EntityFoliage> Foliage { get; } = [];
 
     /// <summary>Mobys currently animating in the 3D View, driven once per frame (see View3D's render
-    /// loop) rather than scanned for out of every entity - a level can have thousands of mobys, but
+    /// loop) rather than scanned for out of every entity - a level can have thousands of Mobys, but
     /// only a handful ever play at once. Add on Play, remove on Stop or when a non-looping clip
     /// finishes.</summary>
     public List<EntityMoby> PlayingMobyAnimations { get; } = [];
@@ -60,16 +125,35 @@ public class EntityManager : IDisposable
         Regions.Add(new EntityRegion(region, am, gd));
     }
 
+    /// <summary>Adds a region whose zones are built afterwards, one at a time - see
+    /// <see cref="SceneBuildJob"/>, which is what a level load drives this through.</summary>
+    public EntityRegion BeginRegion(Region region, AssetManager am, GraphicsDevice gd)
+    {
+        var built = new EntityRegion(region, am, gd, deferZones: true);
+        Regions.Add(built);
+        return built;
+    }
+
     public void LoadFoliage(IReadOnlyList<Assets.Foliage.Foliage> foliages, AssetManager am, GraphicsDevice gd)
     {
         foreach (var foliage in foliages)
         {
             // foliage.Material is resolved from the asset's own texture index; null falls back to the
             // default billboard texture inside GetOrBuildBillboardMaterial.
-            foreach (var placement in foliage.Placements)
-                Foliage.Add(new EntityFoliage(foliage, placement, foliage.Material, am));
+            for (int i = 0; i < foliage.Placements.Count; i++)
+                AddFoliage(foliage, i, am);
         }
 
+        LogFoliage();
+    }
+
+    /// <summary>One placement of one foliage asset, so a caller can spread a level's foliage across
+    /// frames. Indexed rather than handed the placement, which is a struct worth not copying.</summary>
+    public void AddFoliage(Assets.Foliage.Foliage foliage, int placement, AssetManager am) =>
+        Foliage.Add(new EntityFoliage(foliage, foliage.Placements[placement], foliage.Material, am));
+
+    public void LogFoliage()
+    {
         if (Foliage.Count != 0)
             Console.WriteLine($"Foliage: {Foliage.Count} entity/entities built (LOD {EntityFoliage.BuiltLod}).");
     }
@@ -82,11 +166,15 @@ public class EntityManager : IDisposable
         {
             foreach (var e in region.MobyInstances.Entities) yield return e;
             foreach (var e in region.Volumes.Entities) yield return e;
+            foreach (var e in region.Cameras.Entities) yield return e;
+            foreach (var e in region.ControllerInstances.Entities) yield return e;
+            foreach (var e in region.Paths.Entities) yield return e;
 
             foreach (var zone in region.Zones)
             {
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
+                foreach (var e in zone.Navmeshes) yield return e;
             }
         }
     }
@@ -102,6 +190,11 @@ public class EntityManager : IDisposable
     {
         foreach (var e in Foliage) yield return e;
 
+        // Regions can claim the same zone (All 4 One's lobby has two regions over one pair of zones),
+        // and each region built its own EntityZone over it, so a zone reached through two enabled
+        // regions would otherwise have every Tie and UFrag drawn twice.
+        var drawnZones = new HashSet<ulong>();
+
         foreach (var region in Regions)
         {
             if (!region.allowRender) continue;
@@ -111,6 +204,7 @@ public class EntityManager : IDisposable
             foreach (var zone in region.Zones)
             {
                 if (!zone.allowRender) continue;
+                if (!drawnZones.Add(zone.ZoneTUID)) continue;
                 foreach (var e in zone.TieInstances.Entities) yield return e;
                 foreach (var e in zone.UFrags.Entities) yield return e;
             }
@@ -125,6 +219,9 @@ public class EntityManager : IDisposable
         {
             if (region.MobyInstances.TryGetEntity(id, out entity)) return true;
             if (region.Volumes.TryGetEntity(id, out entity)) return true;
+            if (region.Cameras.TryGetEntity(id, out entity)) return true;
+            if (region.ControllerInstances.TryGetEntity(id, out entity)) return true;
+            if (region.Paths.TryGetEntity(id, out entity)) return true;
 
             foreach (var zone in region.Zones)
             {
@@ -143,4 +240,37 @@ public class EntityManager : IDisposable
         PlayingMobyAnimations.Clear();
         GC.SuppressFinalize(this);
     }
+}
+
+/// <summary>Which volumes get translucent faces besides their wireframe.</summary>
+public enum VolumeFillMode
+{
+    None,
+    /// <summary>The Clues that kill: Death, FallToDeath, DirectionalFallToDeath, FallFar.</summary>
+    Death,
+    /// <summary>Those, lava and water.</summary>
+    Hazards,
+    Clues,
+    All,
+}
+
+/// <summary>What a volume's wireframe colour says.</summary>
+public enum PathColorMode
+{
+    /// <summary>What uses it (see PathRoles).</summary>
+    Role,
+    /// <summary>The editor layer it was placed in.</summary>
+    Layer,
+    /// <summary>Every path in one colour.</summary>
+    Single,
+}
+
+public enum VolumeColorMode
+{
+    /// <summary>Its Clue class (hazards in fixed colours), plain volumes in the volume colour.</summary>
+    Kind,
+    /// <summary>The editor layer it was placed in.</summary>
+    Layer,
+    /// <summary>Every volume in the volume colour.</summary>
+    Single,
 }

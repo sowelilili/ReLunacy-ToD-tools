@@ -14,7 +14,7 @@ public class EntityMoby : Entity
     public override string Name { get; protected set; }
     public RenderModel[]? Models { get; private set; }
 
-    /// <summary>Lazily created on first use - most mobys never play an animation in the 3D View, so
+    /// <summary>Lazily created on first use - most Mobys never play an animation in the 3D View, so
     /// there is no reason for every instance to carry one. See EntityManager.PlayingMobyAnimations
     /// for the per-frame update/GPU-push loop that drives this once playback starts.</summary>
     public AnimationPlayer AnimationPlayer => _animationPlayer ??= new AnimationPlayer();
@@ -30,6 +30,20 @@ public class EntityMoby : Entity
     /// game's own logic updates, not rendering. Not used by ReLunacy's own rendering/culling; kept
     /// for the Property Inspector.</summary>
     public float UpdateDistance { get; set; }
+
+    /// <summary>The editor layer the instance was placed in, an index into <see cref="EntityRegion.Layers"/> (0 on the old engine).</summary>
+    public ushort Group { get; set; }
+
+    /// <summary>The instance's TUID (its gp_prius metadata), which a save finds its record by.</summary>
+    public readonly ulong Tuid;
+
+    /// <summary>The instance's settings (new engine) and the fields of them that name another instance; see
+    /// PlacedInstance.Settings. Empty when it has none.</summary>
+    public byte[] Settings { get; } = [];
+    public IReadOnlyList<Assets.LevelElements.ClueReference> References { get; private set; } = [];
+    internal void SetReferences(IReadOnlyList<Assets.LevelElements.ClueReference> references) => References = references;
+    /// <summary>The instance's place in the region's Moby table (see PlacedInstance.GameplayIndex).</summary>
+    public int GameplayIndex { get; } = -1;
 
     public EntityMoby(IPlacedInstance<IMoby> mobyInstance, AssetManager assetManager)
     {
@@ -51,6 +65,14 @@ public class EntityMoby : Entity
         BoundingSphere = new Vector4(center, radius);
 
         DisplayDistance = mobyInstance.DisplayDistance;
+        Group = mobyInstance.Group;
+        Tuid = mobyInstance.ID;
+        if (mobyInstance is Assets.Geometry.PlacedInstance<IMoby> placed)
+        {
+            Settings = placed.Settings;
+            References = placed.References;
+            GameplayIndex = placed.GameplayIndex;
+        }
         UpdateDistance = mobyInstance.UpdateDistance;
 
         Name = !string.IsNullOrEmpty(mobyInstance.Name) ? mobyInstance.Name.Split('/')[^1] : $"Moby_{BaseMoby.Id:X}_{mobyInstance.Group}";

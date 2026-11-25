@@ -14,6 +14,11 @@ public sealed class MaterialReader
     private readonly Dictionary<ulong, Material> _materialCache = [];
     private readonly Dictionary<ulong, Texture> _textureCache = [];
     private readonly Dictionary<(ulong SourceId, OldTextureDescriptorState Descriptor), Texture> _newBindingTextureCache = [];
+    private readonly Dictionary<ulong, ulong> _bindingSources = [];
+
+    /// <summary>New engine: the texture each binding-specific wrapper (a texture under one shader's descriptor) was made from,
+    /// keyed by the wrapper's runtime id. Grows as classes are read.</summary>
+    public IReadOnlyDictionary<ulong, ulong> BindingSources => _bindingSources;
     private readonly Dictionary<uint, IMaterial> _foliageMaterialCache = [];
     private Material? _defaultMaterial;
 
@@ -29,7 +34,7 @@ public sealed class MaterialReader
     /// 3 / 4 / 8 / 16 with zeros after it, +0x60 = 0.01..0.02 / -0.01..0) against luminopolis,
     /// meridian_city and jungle_ruins_pvp, which all read (2, 3, z, 4) at +0x60 and (0.02, -0.01, 3, 0)
     /// at +0x70; +0x30 / +0x34 / +0x3C / +0x68 / +0x6C have the same ranges in all four (STRONG). Read the
-    /// QForce way, ACiT terrain drew with a parallax scale of 3: smeared, marbled UFrags.
+    /// QForce way, ACiT UFrags drew with a parallax scale of 3: smeared, marbled UFrags.
     /// </summary>
     public bool CrackInTimeLayout { get; init; }
 
@@ -165,10 +170,10 @@ public sealed class MaterialReader
                 : meta.ReflectionParameters;
             uint cube = meta.environmentFilterIndex;
             material.EnvironmentCubeIndex = cube <= 3 ? (int)cube : 0;
-            if (shader.ProgramBundle is { } bundle)
+            if (shader.ShaderBundle is { } bundle)
             {
-                material.NewEngineProgramKeys = [.. bundle.Variants.Select(v => v.SkeletonKey)];
-                material.NewEngineProgramBundle = bundle;
+                material.NewEngineShaderKeys = [.. bundle.Variants.Select(v => v.SkeletonKey)];
+                material.NewEngineShaders = bundle;
             }
         }
 
@@ -206,6 +211,7 @@ public sealed class MaterialReader
             bound.Name = legacy.name;
             _textureCache[runtimeId] = bound;
             _newBindingTextureCache[bindingKey] = bound;
+            _bindingSources[runtimeId] = legacy.id;
             return bound;
         }
 
@@ -300,7 +306,14 @@ public sealed class MaterialReader
         meta.height,
         meta.control3);
 
-    private Material GetDefaultMaterial()
+    /// <summary>
+    /// The flat-white stand-in used where a shader cannot be resolved.
+    ///
+    /// Public because it is also the right thing to hand geometry that is loaded but not drawn:
+    /// it builds a 1x1 texture of its own and never goes through WrapTexture, so unlike a real
+    /// material it adds nothing to the shared texture registry the renderer packs its atlas from.
+    /// </summary>
+    public Material GetDefaultMaterial()
     {
         if (_defaultMaterial != null)
             return _defaultMaterial;

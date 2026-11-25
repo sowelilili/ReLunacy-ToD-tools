@@ -14,6 +14,10 @@ public sealed class MobyReader
     private readonly DebugReader _debugReader;
     private readonly AnimationReader _animationReader;
 
+    /// <summary>A Crack in Time: read each class's own collision (<see cref="Assets.Collision.MobyCollision"/>).
+    /// Set from the level's game.</summary>
+    public bool ReadCollision { get; init; }
+
     public MobyReader(FileManager fileManager, MaterialReader materialReader, DebugReader debugReader, AnimationReader animationReader)
     {
         _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
@@ -22,22 +26,27 @@ public sealed class MobyReader
         _animationReader = animationReader ?? throw new ArgumentNullException(nameof(animationReader));
     }
 
-    public Dictionary<ulong, Assets.Mobys.Moby> ReadAllMobys() => _fileManager.isOld ? ReadMobysOld() : ReadMobysNew();
+    /// <param name="progress">The level load's bar; the Moby phase counts one item per prototype.</param>
+    public Dictionary<ulong, Assets.Mobys.Moby> ReadAllMobys(LevelLoadProgress? progress = null) =>
+        _fileManager.IsFallOfMan ? FallOfManGeometry.ReadMobys(_fileManager, _materialReader, _debugReader, progress)
+            : _fileManager.isOld ? ReadMobysOld(progress) : ReadMobysNew(progress);
 
-    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysOld()
+    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysOld(LevelLoadProgress? progress)
     {
         var mobys = new Dictionary<ulong, Assets.Mobys.Moby>();
         IGFile main = _fileManager.igfiles["main.dat"]!;
         IGFile.SectionHeader mobySection = main.QuerySection(0xD100);
+        progress?.SetTotal(mobySection.count);
         for (int i = 0; i < mobySection.count; i++)
         {
+            progress?.Advance();
             var legacyMoby = new Objects.Moby(main.sh, _fileManager, i);
             mobys.Add((ulong)i, ConvertMoby(legacyMoby, (ulong)i));
         }
         return mobys;
     }
 
-    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysNew()
+    private Dictionary<ulong, Assets.Mobys.Moby> ReadMobysNew(LevelLoadProgress? progress)
     {
         var mobys = new Dictionary<ulong, Assets.Mobys.Moby>();
         if (!_fileManager.igfiles.TryGetValue("assetlookup.dat", out IGFile? assetlookup) || assetlookup is null)
@@ -50,18 +59,52 @@ public sealed class MobyReader
         assetlookup.sh.Seek(mobySection.offset);
         AssetPointer[] mobyPtrs = AssetPointer.ReadArray(assetlookup.sh, mobySection.length / AssetPointer.Size);
         Stream mobyStream = _fileManager.rawfiles["mobys.dat"]!;
+        progress?.SetTotal(mobyPtrs.Length);
         for (int i = 0; i < mobyPtrs.Length; i++)
         {
+            progress?.Advance();
             byte[] mobydat = ReadRawAsset(mobyStream, mobyPtrs[i].offset, mobyPtrs[i].length);
             using var mobyms = new MemoryStream(mobydat, writable: false);
             using var streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);
             var legacyMoby = new Objects.Moby(streamHelper, _fileManager);
-            mobys.Add(mobyPtrs[i].TUID, ConvertMoby(legacyMoby, mobyPtrs[i].TUID));
+            mobys.Add(mobyPtrs[i].TUID, ConvertMoby(legacyMoby, mobyPtrs[i].TUID, mobydat));
         }
         return mobys;
     }
 
-    private Assets.Mobys.Moby ConvertMoby(Objects.Moby legacyMoby, ulong tuid)
+    /// <summary>The level's Mobys, each read on first use (see <see cref="AssetLibrary{T}"/>). The old
+    /// engine's are all read here, keyed by index as its instances name them.</summary>
+    /// <param name="progress">Old engine: the Moby phase, which reads them all.</param>
+    public AssetLibrary<Assets.Mobys.Moby> CreateLibrary(object fileLock, LevelLoadProgress? progress = null)
+    {
+        if (_fileManager.isOld)
+            return AssetLibrary<Assets.Mobys.Moby>.FromLoaded(ReadAllMobys(progress));
+
+        AssetPointer[] pointers = NewEngineAssetLookup.ReadPointers(_fileManager, NewEngineAssetLookup.MobyPointers, "Mobys");
+        if (!NewEngineAssetLookup.TryGetPayloadStream(_fileManager, "mobys.dat", "Mobys", out Stream? stream) || stream is null)
+            return AssetLibrary<Assets.Mobys.Moby>.FromLoaded([]);
+
+        return new AssetLibrary<Assets.Mobys.Moby>(pointers, pointer =>
+        {
+            byte[] mobydat = ReadRawAsset(stream, pointer.offset, pointer.length);
+            using var mobyms = new MemoryStream(mobydat, writable: false);
+            using var streamHelper = new StreamHelper(mobyms, StreamHelper.Endianness.Big);
+            return ConvertMoby(new Objects.Moby(streamHelper, _fileManager), pointer.TUID, mobydat);
+        }, pointer => _debugReader.GetMobyPrototypeName(pointer.TUID) ?? ReadNewMobyName(stream, pointer), fileLock);
+    }
+
+    /// <summary>A new-engine Moby's name (its 0xD200 section) without parsing the rest of it.</summary>
+    private static string? ReadNewMobyName(Stream stream, AssetPointer pointer)
+    {
+        byte[] mobydat = ReadRawAsset(stream, pointer.offset, pointer.length);
+        using var mobyms = new MemoryStream(mobydat, writable: false);
+        var igFile = new IGFile(mobyms);
+        var nameSection = igFile.QuerySection(0xD200);
+        return nameSection.id == 0xD200 ? igFile.sh.ReadString(nameSection.offset) : null;
+    }
+
+    /// <param name="container">New engine: the class's container, which the collision is read from.</param>
+    private Assets.Mobys.Moby ConvertMoby(Objects.Moby legacyMoby, ulong tuid, byte[]? container = null)
     {
         ReadMobyBanglesMeshes(legacyMoby);
         var bangles = new List<Bangle>();
@@ -89,7 +132,23 @@ public sealed class MobyReader
             name: name,
             boundingSphereCalculator: () => (boundingCenter, boundingRadius),
             skeleton: ConvertSkeleton(legacyMoby.Skeleton),
-            animationSet: animationSet);
+            animationSet: animationSet)
+        {
+            Collision = ReadCollision && container != null && !legacyMoby.IsOld ? ReadClassCollision(container, legacyMoby, tuid) : null,
+        };
+    }
+
+    private static Assets.Collision.MobyCollision? ReadClassCollision(byte[] container, Objects.Moby legacyMoby, ulong tuid)
+    {
+        try
+        {
+            return Assets.Collision.MobyCollision.Read(container, legacyMoby.Skeleton is { } s && s.numBones > 0 ? s.tms0 : null);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to read collision for moby {tuid:X}: {ex.Message}");
+            return null;
+        }
     }
 
     private static Assets.Interfaces.ISkeleton? ConvertSkeleton(MobySkeleton? raw)

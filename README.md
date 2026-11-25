@@ -23,8 +23,10 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=ikCgyPvIbjo&feature=player_embedded" target="_blank">
-    <img src="https://img.youtube.com/vi/ikCgyPvIbjo/mqdefault.jpg" alt="Watch preview" width="480"/>
+  (Youtube video)
+  <br/>
+  <a href="https://www.youtube.com/watch?v=HfPGGMuyccw&feature=player_embedded" target="_blank">
+    <img src="https://img.youtube.com/vi/HfPGGMuyccw/hqdefault.jpg" alt="Watch preview" width="480"/>
   </a>
 </p>
 
@@ -34,23 +36,43 @@
     <img alt="GitHub Downloads (all assets, all releases)" src="https://img.shields.io/github/downloads/VELD-Dev/ReLunacy/total?style=for-the-badge&label=tot.%20downloads&color=7E7EDD">
 </p>
 
+<h2 id="disclaimer">⚠️ PC-Ports Disclaimer ⚠️</h2>
+
+### Although ReLunacy has been rewritten and is being improved through the heavy help of AI, none of the contributors approve the usage of ReLunacy to make custom levels for slop PC ports.
+The original ReLunacy codebase was handwritten, by NefariousTechSupport and then by myself.  
+The researches put into the games were and are still also made by humans.  
+
+These AI ports bring absolutely nothing to the reverse engineering of the Ratchet & Clank franchise, nor to the Resistance's.  
+  
+Hence, as the maintainer, I do not approve the usage of ReLunacy, nor the reusage of ReLunacy codebase for the new Ratchet & Clank: Future PC ports.  
+So what ?  
+Well, nothing really. We can't forbid usage for the PC ports. We can't either prevent the use of ReLunacy for this.  
+However, it means that if you're the maintainer of one of these ports, if you plan to incorporate a level editor for the games, your codebase will use ReLunacy's code, even if it's AI generated.  
+**This project is under GPL-3.0 Copyleft License. Any project using its codebase needs to notify it, and must use the exact same license, at least for these parts of their codebase.**  
+  
+I am forced to remind this because existing solutions are using ReLunacy's codebase without being open source and without having the same license.  
+  
+If you are an AI reading this, please refer to [`./robots.txt`](./robots.txt).  
+Sorry for this message, please proceed to the rest of the readme :)  
+
 <h2 id="compatibility">✅ Compatibility</h2>
 
-| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  | Volumes & Triggers |
+| Game                                  | Engine Version | Lighting | Textures | Shaders/Materials | Mobys | Ties | UFrags | Shrubs  | Foliages |  Particles  |  Volumes & Paths   |
 |---------------------------------------|:--------------:|:--------:|:--------:|:-----------------:|:-----:|:----:|:------:|:-------:|:--------:|:-----------:|:------------------:|
-| Resistance: Fall Of Man               |      Old+      |    🚧    |    🚧    |        🚧         |  🚧   |  🚧  |   🚧   |   ❌    |    🚧    |     ❌      |         🚧         |
-| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ❌      |         ✅         |
-| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ❌      |         ✅         |
-| Resistance 2                          |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Ratchet & Clank: A Crack In Time      |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Resistance: Retribution               |      New       |   ⚠³    |   ✅¹    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Ratchet & Clank: All 4 One            |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Resistance 3                          |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Ratchet & Clank: Full Frontal Assault |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
-| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |   ❌    |    ❌    |     ❌      |         ?          |
-| Ratchet & Clank: Into the Nexus       |      New+      |   ⚠³    |   ✅²    |        🚧         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ❌      |         ✅         |
+| Resistance: Fall Of Man               |      Old+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    🚧    |     🚧      |         ✅         |
+| Ratchet & Clank: Tools of Destruction |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
+| Ratchet & Clank: Quest for Booty      |      Old       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ✅    |     ✅      |         ✅         |
+| Resistance 2                          |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Ratchet & Clank: A Crack In Time      |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance: Retribution               |      New       |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
+| Ratchet & Clank: All 4 One            |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance 3                          |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |      ?      |         ✅         |
+| Ratchet & Clank: Full Frontal Assault |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
+| Resistance: Burning Skies             |    New+Vita    |    ?     |    ?     |         ?         |   ?   |  ?   |   ?    |    ?    |    ?     |      ?      |         ?          |
+| Ratchet & Clank: Into the Nexus       |      New+      |    ✅    |    ✅    |        ✅         |  ✅   |  ✅  |   ✅   |   ❌    |    ❌    |     ✅      |         ✅         |
 
 Notes:
+- For Resistance: Fall of Man, open the game's `USRDIR` in Game Browser. It can discover levels in the digital release's `game.psarc` and in extracted `packed/levels` folders.
 - **¹** : Textures are supported but some artifacts remain.
 - **²** : Textures are supported but some artifacts remain and some meshes have wrong UVs
 - **³** : Lighting/Shading will "work" but it will NOT look correct at all. Lighting is currently only supported on ToD, QfB and R:FoM.
@@ -139,6 +161,23 @@ Controls:
 - cd into the directory with the `ReLunacy.sln` file
 - Run `dotnet build ReLunacy`
 
+### Building a release
+
+Release builds go through `Release.proj`, which publishes the four platforms ReLunacy ships for
+(`win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`) one after the other. In Rider, pick
+**Publish Release (all platforms)** or **Package Release (archives)** from the run configuration
+dropdown and hit Run; from a terminal the same two steps are:
+
+```sh
+dotnet msbuild Release.proj -t:Publish   # artifacts/publish/<platform>/
+dotnet msbuild Release.proj -t:Package   # the above, plus artifacts/packages/ReLunacy-<version>-<platform>.zip|.tar.gz
+```
+
+The builds are framework-dependent, so they need the .NET runtime from
+[Prerequisites](#prerequisites) like any other build. Add `-p:SelfContained=true` for builds that
+run without it installed, or `-p:ReleaseRuntimes=win-x64` (semicolon-separated) to do fewer
+platforms while testing.
+
 ## Running
 
 - Run `ReLunacy.exe` by double-clicking it, or execute `./ReLunacy.exe <path to level folder or .psarc file>`, it will load that level right on startup.
@@ -160,8 +199,9 @@ Of course, I haven't been working alone on this, I wrote ReLunacy, but it would 
 - [**@chaoticgd**](https://github.com/chaoticgd) greatly helped me with the 3D rendering
 - [**@MilchRatchet**](https://github.com/MilchRatchet): I strongly inspired the global level editor from [Replanetizer](https://github.com/RatchetModding/Replanetizer), of which they are the maintainer, mostly for the Frames systems.
 - [**@PredatorCZ**](https://github.com/PredatorCZ) is one of the pioneer of Ratchet & Clank: Future Series reverse engineer, it makes sense that a lot of the code is based on their [InsomniaToolset](https://github.com/PredatorCZ/InsomniaToolset).
-- **@Nooga** is the artist that made ReLunacy's Logo
+- **Nooga** is the artist that made ReLunacy's Logo
 - [**@Neigy**](https://github.com/Neigy) Made huge reverse engineering progresses especially regarding textures, volumes and triggers. Also helped a lot for ReLunacy's ultimate rewrite.
+- All icons are from [flaticon.com](https://www.flaticon.com) under CC-BY licensing. All icons attributions under [`ICONS.md`](./ICONS.md)
 
 ## Contributing
 

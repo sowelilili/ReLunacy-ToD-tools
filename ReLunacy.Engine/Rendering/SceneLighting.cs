@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeoVeldrid;
+using ReLunacy.Engine.Assets.Lighting;
 
 namespace ReLunacy.Engine.Rendering;
 
@@ -51,20 +52,31 @@ public sealed class SceneLighting
     public Vector2 LightmapUVPivot = new(0.5f, 0.5f);
     public float LightmapUVRotation;
 
+    public void SetEnvironment(LightingEnvironment? environment)
+    {
+        var sample = OldEngineLightingSampler.Global(environment);
+        HasLightingEnvironment = sample.HasLighting;
+        EnvAmbient = sample.Ambient;
+        EnvLight0Colour = sample.Light0Colour;
+        EnvLight1Colour = sample.Light1Colour;
+        EnvDirection0 = sample.HasLighting ? sample.Direction0 : Vector3.UnitY;
+        EnvDirection1 = sample.HasLighting ? sample.Direction1 : Vector3.UnitY;
+    }
+
     public LightData BuildLightData(Vector3 cameraPosition)
     {
         bool old = OldEngineMode;
         bool reflections = !old || OldEngineRenderOptions.ReflectionsEnabled;
 
-        var fog = old ? LevelFog : null;
-        bool fogEnabled = old
-            && OldEngineRenderOptions.FogEnabled
+        // The old engine's fog, or A Crack in Time's, which is the same linear fog (LightingEnvironment.LinearFog).
+        var fog = LevelFog;
+        bool fogEnabled = OldEngineRenderOptions.FogEnabled
             && fog is { HasValidLinearRange: true }
             && fog.Amount > 0f;
 
-        // Old engine: the retail TIE cube reflection at the programs' own gain (1). Closed 09-10-2026: the
-        // cube's alpha is its exponent as the programs read it, and the distance fade c[16] that kept far
-        // TIEs from reflecting is per TieFrag (Docs/reverse/TOD_RENDER_POST_2026-10-09.md §6). Before it,
+        // Old engine: the retail Tie cube reflection at the shaders' own gain (1). Closed 09-10-2026: the
+        // cube's alpha is its exponent as the shaders read it, and the distance fade c[16] that kept far
+        // Ties from reflecting is per TieFrag (Docs/reverse/TOD_RENDER_POST_2026-10-09.md §6). Before it,
         // reflections glowed at every distance and were held back to a 0.12 A/B gain.
         float environmentIntensity = old
             ? (reflections ? 1f : 0f)
@@ -110,7 +122,7 @@ public sealed class SceneLighting
             MaterialEmissiveEnabled = 1f,
 
             // PROVEN: colour, LinearScale, LinearBias, Amount come from 0x7100 / 0x572774.
-            // PROVEN since 2026-09-16: coordinate = clip-space w (retail TIE/Moby VPs). The shaders use it
+            // PROVEN since 2026-09-16: coordinate = clip-space w (retail Tie/Moby VPs). The shaders use it
             // only when this explicit gate is enabled.
             FogColour = fog?.Colour ?? Vector3.Zero,
             FogScale = fog?.LinearScale ?? 0f,

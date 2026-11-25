@@ -12,6 +12,7 @@ public sealed class TextureShaderLoader
     public readonly Dictionary<ulong, Texture> Textures = [];
     public readonly Dictionary<ulong, Shader> Shaders = [];
     public readonly List<Texture> OldTexturesByIndex = [];
+    public IReadOnlyList<Assets.Interfaces.ITexture?> FallOfManBakedLightmaps { get; private set; } = [];
 
     /// <summary>New engine: TUIDs of <see cref="Textures"/> / <see cref="Shaders"/> taken from the
     /// patches' <c>built/patch/</c> layer (it wins over the level's copy, like on console).</summary>
@@ -22,16 +23,24 @@ public sealed class TextureShaderLoader
 
     public TextureShaderLoader(FileManager fileManager) { _fileManager = fileManager; }
 
-    public void LoadAll(Action<string, float>? progressCallback = null)
+    /// <param name="progress">The level load's bar. Textures and shaders are separate phases on it:
+    /// they are separate passes over separate tables, and on a big level the texture table alone is
+    /// a visible fraction of the wait.</param>
+    public void LoadAll(LevelLoadProgress? progress = null)
     {
-        progressCallback?.Invoke("Loading textures...", 0.0f);
-        LoadTextures();
-        progressCallback?.Invoke("Loading shaders...", 0.5f);
-        LoadShaders();
+        progress?.Begin(LoadPhase.Textures);
+        LoadTextures(progress);
+        progress?.Begin(LoadPhase.Shaders);
+        LoadShaders(progress);
     }
 
-    public void LoadTextures() { if (_fileManager.isOld) LoadTexturesOld(); else LoadTexturesNew(); }
-    public void LoadShaders() { if (_fileManager.isOld) LoadShadersOld(); else LoadShadersNew(); }
+    public void LoadTextures(LevelLoadProgress? progress = null) { _progress = progress; if (_fileManager.isOld) LoadTexturesOld(); else LoadTexturesNew(); }
+    public void LoadShaders(LevelLoadProgress? progress = null) { _progress = progress; if (_fileManager.isOld) LoadShadersOld(); else LoadShadersNew(); }
+
+    /// <summary>The bar the current pass reports to. A field rather than an argument threaded through
+    /// a dozen private readers, which would be churn for something only the loops at the bottom of
+    /// them touch.</summary>
+    private LevelLoadProgress? _progress;
 
     private void LoadTexturesNew()
     {
@@ -56,8 +65,10 @@ public sealed class TextureShaderLoader
         alstream.Seek(highmipsPtrSec.offset);
         var highmipsPtrs = AssetPointer.ReadArray(alstream, highmipsPtrSec.length / 0x10);
         uint textureCount = textureMetaSec.length / TextureMetadataNew.Size;
+        _progress?.SetTotal(textureCount);
         for (uint i = 0; i < textureCount; i++)
         {
+            _progress?.Advance();
             alstream.Seek(textureMetaSec.offset + TextureMetadataNew.Size * i);
             var tex = new Texture(alstream) { highmipsRef = highmipsPtrs[i], id = highmipsPtrs[i].TUID };
             if (fromPatchLayer)
@@ -92,6 +103,25 @@ public sealed class TextureShaderLoader
 
         var mainStream = main.sh;
         var textures = new StreamHelper(textureStream, StreamHelper.Endianness.Big);
+        if (_fileManager.IsFallOfMan)
+        {
+            var descriptors = main.QuerySection(0x5300);
+            if (descriptors.length != TextureMetadataOld.Size)
+                throw new InvalidDataException($"Unexpected Fall of Man texture stride 0x{descriptors.length:X}.");
+            _progress?.SetTotal(descriptors.count);
+            for (uint i = 0; i < descriptors.count; i++)
+            {
+                mainStream.Seek(descriptors.offset + descriptors.length * i);
+                var texture = new Texture(mainStream, old: true) { ReadAuthoredMipChain = true };
+                texture.ReadTexture(textures);
+                Textures.Add(texture.id, texture);
+                OldTexturesByIndex.Add(texture);
+                _progress?.Advance();
+            }
+            FallOfManBakedLightmaps = Readers.FallOfManLightmaps.Read(main, textureStream);
+            return;
+        }
+
         var residentSection = main.QuerySection(ResidentTextureDataSectionId);
         StreamHelper? residentTextures = null;
         if (residentSection.id == ResidentTextureDataSectionId && residentSection.count != 0 && residentSection.length > 0)
@@ -107,6 +137,9 @@ public sealed class TextureShaderLoader
             throw new InvalidDataException($"Old 0x5200 texture descriptor stride is 0x{textureMetadataSection.length:X}, expected 0x{TextureMetadataOld.Size:X}.");
 
         uint oldTextureCount = textureMetadataSection.count;
+        // The descriptor pass below is cheap; the bar counts the pass after it, which is the one
+        // that reads (and decompresses) every texture's pixels.
+        _progress?.SetTotal(oldTextureCount);
         for (uint i = 0; i < oldTextureCount; i++)
         {
             mainStream.Seek(textureMetadataSection.offset + TextureMetadataOld.Size * i);
@@ -151,6 +184,7 @@ public sealed class TextureShaderLoader
 
         for (int textureIndex = 0; textureIndex < OldTexturesByIndex.Count; textureIndex++)
         {
+            _progress?.Advance();
             var tex = OldTexturesByIndex[textureIndex];
             var meta = (TextureMetadataOld)tex.textureMetadata;
             streamRecords.TryGetValue((uint)textureIndex, out var records);
@@ -326,6 +360,8 @@ public sealed class TextureShaderLoader
         var alstream = assetlookup.sh;
         var shaderPtrSec = assetlookup.QuerySection(Shader.PointerID);
         uint shaderCount = shaderPtrSec.length / AssetPointer.Size;
+        // Counted here, advanced in the parse pass below - reading the pointer table is not the work.
+        _progress?.SetTotal(shaderCount);
         var shaderPointers = new List<(AssetPointer Pointer, Stream Source, bool FromPatchLayer)>((int)shaderCount);
         for (uint i = 0; i < shaderCount; i++)
         {
@@ -349,6 +385,7 @@ public sealed class TextureShaderLoader
 
         foreach (var (ptr, source, fromPatchLayer) in shaderPointers)
         {
+            _progress?.Advance();
             var shaderBuffer = new byte[ptr.length];
             source.Seek(ptr.offset, SeekOrigin.Begin);
             source.ReadExactly(shaderBuffer);
@@ -419,8 +456,8 @@ public sealed class TextureShaderLoader
             }
 
             shader.name = shadstream.ReadString(sref.namePointer);
-            shader.ProgramBundle = NewEngineShaderProgramBundle.TryRead(
-                igshader, shadstream, meta.fragmentProgramBaseTuid, shader.name);
+            shader.ShaderBundle = NewEngineShaderBundle.TryRead(
+                igshader, shadstream, meta.fragmentShaderBaseTuid, shader.name);
             if (fromPatchLayer)
             {
                 Shaders[ptr.TUID] = shader;
@@ -509,14 +546,40 @@ public sealed class TextureShaderLoader
         if (!_fileManager.igfiles.TryGetValue("main.dat", out IGFile? main) || main is null)
             throw new FileNotFoundException("Main file is missing.", "main.dat");
         var mainstream = main.sh;
-        var shaderMetadataSec = main.QuerySection(ShaderMetadataOld.ID);
+        bool fallOfMan = _fileManager.IsFallOfMan;
+        var shaderMetadataSec = main.QuerySection(fallOfMan ? 0x5001u : ShaderMetadataOld.ID);
         if (shaderMetadataSec.length != ShaderMetadataOld.Size)
             throw new InvalidDataException($"Old shader metadata stride is 0x{shaderMetadataSec.length:X}, expected 0x{ShaderMetadataOld.Size:X}.");
         uint shaderCount = shaderMetadataSec.count;
+        _progress?.SetTotal(shaderCount);
         for (uint i = 0; i < shaderCount; i++)
         {
+            _progress?.Advance();
             mainstream.Seek(shaderMetadataSec.offset + ShaderMetadataOld.Size * i);
-            var shader = new Shader(mainstream, true, i);
+            Shader shader;
+            if (fallOfMan)
+            {
+                // 0x5001 places the feature byte at +0x1C (game.self 0x1468F4).
+                // The fragment patch loop at 0x149638 reads group 1 at +0x30 and group 2 at +0x40.
+                mainstream.Seek(0x1C, SeekOrigin.Current);
+                byte flags = mainstream.ReadByte();
+                byte mode = mainstream.ReadByte();
+                mainstream.Seek(2, SeekOrigin.Current);
+                shader = new Shader(mainstream, i, new ShaderMetadataOld
+                {
+                    flags = flags,
+                    renderingMode = mode,
+                    albedo = mainstream.ReadUInt32(),
+                    normal = mainstream.ReadUInt32(),
+                    expensive = mainstream.ReadUInt32(),
+                    detailMap = mainstream.ReadUInt32(),
+                    value1X = mainstream.ReadSingle(),
+                    value1Y = mainstream.ReadSingle(),
+                    Unk2b = mainstream.ReadBytes(0x18),
+                });
+            }
+            else
+                shader = new Shader(mainstream, true, i);
             if (Textures.Count < 1) throw new InvalidOperationException("Textures must be loaded before shaders.");
             var meta = shader.metadataOld!.Value;
             if (meta.albedo != 0 && Textures.TryGetValue(meta.albedo, out var albedo)) shader.Albedo = albedo;

@@ -4,7 +4,7 @@ using System.Text;
 namespace ReLunacy.Engine.Rendering.Vulkan;
 
 /// <summary>
-/// RSX (NV47) fragment microcode -> GLSL, so a class-0x13 material draws with the game's own program
+/// RSX (NV47) fragment microcode -> GLSL, so a class-0x13 material draws with the game's own shader
 /// instead of the editor's generic one (Docs/reverse/NEW_ENGINE_EMBEDDED_PROGRAMS_2026-10-07.md).
 ///
 /// Encoding: 16-byte instructions, each word (b2 &lt;&lt; 24) | (b3 &lt;&lt; 16) | (b0 &lt;&lt; 8) | b1; a source of
@@ -12,13 +12,13 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// FragmentProgramDecompiler (RSXFragmentProgram.h): src0 bit 29 = abs, bit 30 = the condition register a
 /// SETCOND writes, bit 31 = the one a conditional instruction tests; src1 bits 19-21 = src0's input clamp,
 /// 28-30 = result scale; IFE else / end offsets are in 4-byte words. Measured on the 204 distinct QForce
-/// embedded programs: src0 bit 29 is set on 125 unconditional instructions (so it is abs, not a condition
+/// embedded shaders: src0 bit 29 is set on 125 unconditional instructions (so it is abs, not a condition
 /// register), and the IFE end offsets land on instruction boundaries.
 ///
-/// The output is a function body: `vec4 rsxProgram()` reading the interpolants (WPOS, TEX0..TEX9),
+/// The output is a function body: `vec4 rsxShader()` reading the interpolants (WPOS, TEX0..TEX9),
 /// the texture functions rsxTex0..rsxTex15 and the patch-group vectors G0..G22, all supplied by the caller.
 /// h and r registers are kept apart, like RPCS3 before register aliasing and like the reverse tools: the
-/// Cg-compiled programs never read a register through the other view.
+/// Cg-compiled shaders never read a register through the other view.
 /// </summary>
 public static class RsxFragmentTranslator
 {
@@ -39,16 +39,17 @@ public static class RsxFragmentTranslator
     private readonly record struct Instruction(int Offset, int Index, uint D0, uint S0, uint S1, uint S2, int Op, float[]? Constant);
 
     /// <summary>
-    /// Translates one program. <paramref name="slotGroups"/> maps a constant slot (byte offset / 16) to its
+    /// Translates one shader. <paramref name="slotGroups"/> maps a constant slot (byte offset / 16) to its
     /// patch group; those constants read G&lt;group&gt; instead of their stored value. <paramref name="exports32"/>
     /// is the shader-control 32-bit-exports bit: r0 is then the colour, else h0. Null with a reason when the
-    /// program uses something the translator does not implement.
+    /// shader uses something the translator does not implement.
     /// </summary>
-    public static Result? Translate(ReadOnlySpan<byte> microcode, IReadOnlyDictionary<int, int> slotGroups, bool exports32, out string? failure)
+    public static Result? Translate(ReadOnlySpan<byte> microcode, IReadOnlyDictionary<int, int> slotGroups,
+        bool exports32, out string? failure, bool captureOldReflectionGlow = false)
     {
         failure = null;
-        var program = Decode(microcode);
-        if (program.Count == 0 || (program[^1].D0 & 1) == 0)
+        var shader = Decode(microcode);
+        if (shader.Count == 0 || (shader[^1].D0 & 1) == 0)
         {
             failure = "no end instruction";
             return null;
@@ -65,7 +66,7 @@ public static class RsxFragmentTranslator
 
         void Line(string text) => body.Append(' ', 4 * depth).Append(text).Append('\n');
 
-        foreach (Instruction ins in program)
+        foreach (Instruction ins in shader)
         {
             // RPCS3 order: close the blocks that end here, then open the else of the ones that branch here.
             for (int at = endOffsets.IndexOf(ins.Offset); at >= 0; at = endOffsets.IndexOf(ins.Offset))
@@ -82,7 +83,8 @@ public static class RsxFragmentTranslator
                 depth++;
             }
 
-            string? error = Emit(ins, Line, registers, units, inputs, groups, slotGroups, elseOffsets, endOffsets, ref depth);
+            string? error = Emit(ins, Line, registers, units, inputs, groups, slotGroups, elseOffsets,
+                endOffsets, captureOldReflectionGlow, ref depth);
             // Debugging: RELUNACY_RSX_DEBUG_AT=<index> returns RELUNACY_RSX_DEBUG_REG right after that instruction.
             if (int.TryParse(Environment.GetEnvironmentVariable("RELUNACY_RSX_DEBUG_AT"), out int stopAt) && stopAt == ins.Index &&
                 Environment.GetEnvironmentVariable("RELUNACY_RSX_DEBUG_REG") is { Length: > 0 } stopRegister)
@@ -103,7 +105,7 @@ public static class RsxFragmentTranslator
         }
 
         var text = new StringBuilder();
-        text.Append("vec4 rsxProgram() {\n");
+        text.Append("vec4 rsxShader() {\n");
         foreach (string reg in registers)
             text.Append("    vec4 ").Append(reg).Append(" = vec4(0.0);\n");
         text.Append("    vec4 cc0 = vec4(0.0);\n    vec4 cc1 = vec4(0.0);\n");
@@ -119,7 +121,7 @@ public static class RsxFragmentTranslator
             TextureUnits = units,
             Inputs = inputs,
             Groups = groups,
-            InstructionCount = program.Count,
+            InstructionCount = shader.Count,
         };
     }
 
@@ -159,6 +161,7 @@ public static class RsxFragmentTranslator
         IReadOnlyDictionary<int, int> slotGroups,
         List<int> elseOffsets,
         List<int> endOffsets,
+        bool captureOldReflectionGlow,
         ref int depth)
     {
         int op = ins.Op;
@@ -215,8 +218,8 @@ public static class RsxFragmentTranslator
             0x16 => $"dFdy({Src(0)})",
             0x17 => Texture(ins, Src(0), units),
             0x18 => Texture(ins, $"rsxProject({Src(0)})", units),
-            // TXL / TXB (Tools of Destruction's cube reflection: lod = props.r x fade): the editor's
-            // texture functions sample with the hardware's own level, the lod / bias is not applied.
+            // Unit 7 is the reflection cube. TXL reads the explicit mip from source 1.x.
+            0x2F when Bits(ins.D0, 17, 4) == 7 => Texture(ins, Src(0), units, $"({Src(1)}).x"),
             0x2F or 0x31 => Texture(ins, Src(0), units),
             0x1A => $"vec4(1.0 / ({Src(0)}).x)",
             0x1B => $"vec4(inversesqrt(abs(({Src(0)}).x)))",
@@ -270,11 +273,22 @@ public static class RsxFragmentTranslator
         if (!noDest)
             registers.Add(target);
 
+        // The old reflective Tie variants compute reflection luminance once, before adding it to
+        // their alpha output. Capture the same predicated write independently of coverage.
+        if (captureOldReflectionGlow && op == 0x05 &&
+            (IsReflectionLuminance(ins.Constant, ins.S0) || IsReflectionLuminance(ins.Constant, ins.S1)))
+            WriteMasked(ins, line, "rsxReflectionGlow", temp, mask);
         WriteMasked(ins, line, target, temp, mask);
         if (setCond && !noDest)
             line($"{ccSet}.{mask} = {target}.{mask};");
         return null;
     }
+
+    private static bool IsReflectionLuminance(float[]? constant, uint source) =>
+        constant != null && Bits(source, 0, 2) == 2 &&
+        MathF.Abs(constant[Bits(source, 9, 2)] - 0.299f) < 0.0005f &&
+        MathF.Abs(constant[Bits(source, 11, 2)] - 0.587f) < 0.0005f &&
+        MathF.Abs(constant[Bits(source, 13, 2)] - 0.114f) < 0.0005f;
 
     private static void WriteMasked(in Instruction ins, Action<string> line, string target, string value, string mask)
     {
@@ -319,11 +333,11 @@ public static class RsxFragmentTranslator
         _ => $"{x} != 0.0",
     };
 
-    private static string Texture(in Instruction ins, string coordinate, SortedSet<int> units)
+    private static string Texture(in Instruction ins, string coordinate, SortedSet<int> units, string? lod = null)
     {
         int unit = Bits(ins.D0, 17, 4);
         units.Add(unit);
-        return $"rsxTex{unit}({coordinate})";
+        return lod == null ? $"rsxTex{unit}({coordinate})" : $"rsxTex{unit}Lod({coordinate}, {lod})";
     }
 
     private static string Source(

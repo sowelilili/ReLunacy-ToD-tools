@@ -18,40 +18,34 @@ public class EntityUFrag : Entity
 
     public RenderMesh UFragMesh { get; protected set; }
 
+    /// <summary>The anchor as the file last held it (as loaded, then as last saved). A UFrag's record holds a
+    /// position and a bounding sphere, no rotation or scale: a save moves both by how far the anchor moved since.</summary>
+    public Vector3 SavedTranslation { get; private set; }
+
+    public void MarkSaved() => SavedTranslation = Transform.Translation;
+
+    /// <summary>Planet regions: the occlusion grid never hides this UFrag (see <see cref="EntityTie.NeverCulled"/>).</summary>
+    public bool NeverCulled { get; set; }
+
     public EntityUFrag(IUFrag ufrag, AssetManager assetManager)
     {
         UFrag = ufrag;
         Name = !string.IsNullOrEmpty(ufrag.Name) ? $"{ufrag.Name}_{ID}" : $"UFrag_{ID}";
 
-        // Old-engine UFrag UV2 is a Half2 lightmap atlas coordinate. A small but real population has
-        // the never-written/sentinel pattern (-0.0, ~18.344) on every vertex; binding an atlas for
-        // those chunks made the generic Wrap sampler fold V back into an unrelated atlas island.
-        // Reject the UV channel before either the vertex buffer or material can use it.
-        var candidateLightmapUVs = ufrag.GetLightmapUVs();
-        int vertexCount = ufrag.GetVertexPositions().Length / 3;
-        bool hasValidLightmapUVs = HasValidLightmapUVs(candidateLightmapUVs, vertexCount, ufrag.IsOldEngine);
-        var validatedLightmapUVs = hasValidLightmapUVs ? candidateLightmapUVs : null;
-
+        // Packed by the load's parallel pre-pass (Loading.PreparedGeometry) - none of it needs the
+        // graphics device, and it is the bulk of what used to be done here, on the main thread, for
+        // every chunk in the level in one go. Packed on the spot only for a chunk that pass never
+        // saw.
         var twoLayer = ufrag is { SecondMaterial: not null, BlendMask: not null } ? ufrag : null;
-        var vertices = ConvertUFragToVertices(ufrag, ufrag.Material.UsesVertexAlpha, validatedLightmapUVs);
-        if (twoLayer != null && !ufrag.IsOldEngine)
-        {
-            // The blend weight the two-layer programs compare with the mask (TEX1.y).
-            var raw = twoLayer.GetRawVertices();
-            for (int v = 0; v < vertices.Length && v < raw.Length; v++)
-                vertices[v].Color = vertices[v].Color with { W = (Math.Abs((int)raw[v].unk) & 0x7F) / 128f };
-        }
-        var indices = ufrag.GetIndices();
+        if (assetManager.PreparedGeometry is not { } pre || !pre.TryTake(ufrag, out var geometry))
+            geometry = PrepareGeometry(ufrag);
 
         // Mirror the native ushort sanitation as well: 0xFFFF means none, and an index outside either
         // decoded 0x5400/0x5410 list is treated as none rather than allowed to become a material key.
         ushort candidateIndex = ufrag.LightmapIndex;
-        ushort lightmapIndex = hasValidLightmapUVs
-            && candidateIndex != Loading.Objects.UFragMetadata.NoLightmap
-            && candidateIndex < assetManager.ZoneLightmaps.Count
-            && candidateIndex < assetManager.ZoneDirectionals.Count
-            && assetManager.ZoneLightmaps[candidateIndex] != null
-            && assetManager.ZoneDirectionals[candidateIndex] != null
+        ushort lightmapIndex = geometry.HasValidLightmapUVs
+            && assetManager.HasLightmap(candidateIndex)
+            && (!assetManager.UsesFallOfManLightmaps || ufrag is Assets.UFrags.OldUFrag { FallOfManBake: not null })
                 ? candidateIndex
                 : Loading.Objects.UFragMetadata.NoLightmap;
 
@@ -61,16 +55,17 @@ public class EntityUFrag : Entity
         var material = twoLayer != null
             ? assetManager.GetOrBuildMaterial(ufrag.Material, lightmapIndex, twoLayer.SecondMaterial!, twoLayer.BlendMask!)
             : assetManager.GetOrBuildMaterial(ufrag.Material, lightmapIndex);
-        UFragMesh = new RenderMesh(vertices, indices, material);
+        UFragMesh = new RenderMesh(geometry.Vertices, geometry.Indices, material);
 
-        if (vertices.Length > 0 && indices.Length >= 3)
-            Rendering.Vulkan.VulkanSceneCapture.Register(UFragMesh, Rendering.Vulkan.VulkanSceneCapture.Interleave(vertices), indices);
+        if (geometry.Interleaved.Length > 0)
+            Rendering.Vulkan.VulkanSceneCapture.Register(UFragMesh, geometry.Interleaved, geometry.Indices);
 
         // UFragVertex's raw per-vertex x/y/z are fixed-point shorts quantized x256 on BOTH
         // engines. GetAnchor() is the chunk's world-space placement anchor; local mesh coordinates
         // are brought back to world scale by the reciprocal quantisation here.
         var anchor = ufrag.GetAnchor();
         Transform = new Transform { Translation = anchor, Rotation = Quaternion.Identity, Scale = Vector3.One / UFragQuantisation };
+        SavedTranslation = anchor;
 
         // BoundingSphere is LOCAL space per Entity's convention. The file gives centre/radius in
         // world units, so convert them back into the x256 mesh space and let WorldBoundingSphere's
@@ -78,6 +73,38 @@ public class EntityUFrag : Entity
         BoundingSphere = new Vector4(
             (ufrag.GetBoundingCenter() - anchor) * UFragQuantisation,
             ufrag.GetBoundingRadius() * UFragQuantisation);
+    }
+
+    /// <summary>
+    /// This chunk's vertex, index and interleaved arrays, with no graphics device and no shared
+    /// state involved - safe to run on any thread, and in parallel over a whole level (see
+    /// Loading.PreparedGeometry, which is what normally calls this).
+    /// </summary>
+    internal static Loading.PreparedGeometry.Entry PrepareGeometry(IUFrag ufrag)
+    {
+        // Old-engine UFrag UV2 is a Half2 lightmap atlas coordinate. A small but real population has
+        // the never-written/sentinel pattern (-0.0, ~18.344) on every vertex; binding an atlas for
+        // those chunks made the generic Wrap sampler fold V back into an unrelated atlas island.
+        // Reject the UV channel before either the vertex buffer or material can use it.
+        var candidateLightmapUVs = ufrag.GetLightmapUVs();
+        int vertexCount = ufrag.GetVertexPositions().Length / 3;
+        bool hasValidLightmapUVs = ufrag is Assets.UFrags.OldUFrag { FallOfManBake: not null }
+            ? candidateLightmapUVs != null && candidateLightmapUVs.Length == vertexCount * 2 && candidateLightmapUVs.All(float.IsFinite)
+            : HasValidLightmapUVs(candidateLightmapUVs, vertexCount, ufrag.IsOldEngine);
+        var validatedLightmapUVs = hasValidLightmapUVs ? candidateLightmapUVs : null;
+
+        var vertices = ConvertUFragToVertices(ufrag, ufrag.Material.UsesVertexAlpha, validatedLightmapUVs);
+        if (ufrag is { SecondMaterial: not null, BlendMask: not null } && !ufrag.IsOldEngine)
+        {
+            // The blend weight the two-layer shaders compare with the mask (TEX1.y).
+            var raw = ufrag.GetRawVertices();
+            for (int v = 0; v < vertices.Length && v < raw.Length; v++)
+                vertices[v].Color = vertices[v].Color with { W = (Math.Abs((int)raw[v].unk) & 0x7F) / 128f };
+        }
+        var indices = ufrag.GetIndices();
+
+        return new Loading.PreparedGeometry.Entry(
+            vertices, indices, Loading.PreparedGeometry.Interleaved(vertices, indices), hasValidLightmapUVs);
     }
 
     /// <summary>New-engine UV2 may overshoot [0,1] by a hair where a chart touches the atlas border
@@ -113,6 +140,7 @@ public class EntityUFrag : Entity
         // See Material.UsesVertexAlpha / AssetManager.ConvertGeometryToVertices, which this
         // mirrors: only read when the material has a use for it.
         var vertexAlpha = useVertexAlpha ? ufrag.GetVertexAlpha() : null;
+        var vertexLight = (ufrag as Assets.UFrags.OldUFrag)?.FallOfManBake?.VertexScales;
 
         int vertexCount = positions.Length / 3;
         var vertices = new Vertex3D[vertexCount];
@@ -139,7 +167,8 @@ public class EntityUFrag : Entity
                 : uv;
 
             float alpha = vertexAlpha != null && i < vertexAlpha.Length ? vertexAlpha[i] : 1f;
-            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, new Vector4(1f, 1f, 1f, alpha));
+            float lightScale = vertexLight?[i] ?? 1f;
+            vertices[i] = new Vertex3D(position, uv, lightmapUV, normal, tangent, new Vector4(lightScale, lightScale, lightScale, alpha));
         }
 
         return vertices;
