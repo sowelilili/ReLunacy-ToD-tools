@@ -25,7 +25,7 @@ namespace ReLunacy.Engine.Rendering.Vulkan;
 /// </summary>
 public sealed unsafe partial class VulkanRenderer
 {
-    // uParams: x opacity, y 1 = outlines, z 1 = edit mode (selection highlighted).
+    // uParams: x opacity, y 1 = outlines, z 1 = edit mode (selection highlighted), w wallbounce minimum tilt.
     // uFlags: x visible categories (CollisionCategories), y colour mode (CollisionColorMode), z visible
     // regions (bit N = the Nth region given to CollisionGeometry.Build), w visible primitive kinds.
     // uMat0/uMat1: visible materials, bit m of the 256. uMisc.x: visible triangle-flag values, bit f of 32.
@@ -43,18 +43,28 @@ layout(location = 4) in vec4 inRow2;
 layout(location = 5) in vec4 inRow3;
 layout(location = 6) in uint inInstance;
 layout(location = 7) in uint inRegions;
+layout(location = 8) in uint inWallbounceBase;
+layout(location = 9) in uint inWallbounceOn;
+// Wallbounce tilts, one per placed mesh triangle (CollisionWallbounce): placement i's triangle t is at
+// int(inWallbounceBase) + gl_VertexIndex / 3, the base already less its shape's first triangle.
+layout(set = 1, binding = 0, std430) readonly buffer Wallbounce { uint uTilt[]; };
 layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vBary;
 layout(location = 2) flat out vec3 vColor;
 layout(location = 3) flat out float vSelected;
+// Bits 0-4 triangle flags, 5-7 shape kind, 8-15 wallbounce tilt (degrees, 0 = none).
+layout(location = 4) flat out uint vFace;
 
-// Mirror CollisionGeometry.IdColor / FlagColor / the Type colours.
-vec3 idColour(uint id) {
-    float h = fract(0.08 + float(id) * 0.618034);
+// Mirror CollisionGeometry.IdColor / MaterialColor / FlagColor / the Type colours.
+vec3 hueColour(float h, float saturation) {
     vec3 rgb = clamp(vec3(abs(h * 6.0 - 3.0) - 1.0, 2.0 - abs(h * 6.0 - 2.0), 2.0 - abs(h * 6.0 - 4.0)), 0.0, 1.0);
-    return 0.95 * mix(vec3(1.0), rgb, 0.7);
+    return 0.95 * mix(vec3(1.0), rgb, saturation);
 }
-vec3 flagColour(uint f) { return f == 0u ? vec3(0.3) : idColour(f); }
+vec3 idColour(uint id) { return hueColour(fract(0.08 + float(id) * 0.618034), 0.7); }
+vec3 materialColour(uint m) { return hueColour(fract(float(m) * 0.618034), 0.6); }
+vec3 flagColour(uint f) {
+    return f == 0u ? vec3(0.3) : vec3((f & 1u) != 0u ? 1.0 : 0.15, (f & 2u) != 0u ? 1.0 : 0.15, (f & 4u) != 0u ? 1.0 : 0.15);
+}
 vec3 typeColour(uint kind, bool tie) {
     if (kind == 0u) return tie ? vec3(1.0, 0.62, 0.18) : vec3(0.30, 0.78, 0.42);
     if (kind == 1u) return vec3(0.25, 0.55, 1.0);
@@ -92,10 +102,14 @@ void main()
     vSelected = uParams.z > 0.5 && ((inAttr & 0x10000u) != 0u || (inInstance & 2u) != 0u) ? 1.0 : 0.0;
 
     uint mode = uFlags.y;
+    uint flags = kind == 0u ? (inAttr >> 8) & 0x1Fu : 0u;
+    uint tilt = kind == 0u && inWallbounceOn != 0u ? min(uTilt[int(inWallbounceBase) + gl_VertexIndex / 3], 255u) : 0u;
+    vFace = flags | (kind << 5) | (tilt << 8);
     // Bit 17: a primitive that carries a material (a Moby's, see MobyCollisionGeometry).
-    if (mode == 1u)      vColor = kind == 0u || (inAttr & 0x20000u) != 0u ? idColour(inAttr & 0xFFu) : vec3(0.5);
-    else if (mode == 2u) vColor = kind == 0u ? flagColour((inAttr >> 8) & 0x1Fu) : vec3(0.5);
+    if (mode == 1u)      vColor = kind == 0u || (inAttr & 0x20000u) != 0u ? materialColour(inAttr & 0xFFu) : vec3(0.5);
+    else if (mode == 2u) vColor = kind == 0u ? flagColour(flags) : vec3(0.5);
     else if (mode == 3u) vColor = idColour(inInstance >> 16);
+    else if (mode >= 4u) vColor = vec3(0.25); // WrenchBoost / Wallbounce: the fragment shader picks the spots
     else                 vColor = typeColour(kind, tie);
     gl_Position = uMvp * world;
 }";
@@ -106,11 +120,12 @@ layout(location = 0) in vec3 vWorld;
 layout(location = 1) in vec3 vBary;
 layout(location = 2) flat in vec3 vColor;
 layout(location = 3) flat in float vSelected;
+layout(location = 4) flat in uint vFace;
 layout(location = 0) out vec4 o;
 void main()
 {
-    // Flat face normal from the position's derivatives. The files' winding is not consistent, so the
-    // shade uses |N.L| and both sides of a face look the same.
+    // Flat face normal from the position's derivatives. The shade uses |N.L| so both sides of a face
+    // look the same: collision is often seen from behind (Tie shells, the camera inside a mesh).
     // A face seen edge-on - which is what the camera passing through one does - has parallel
     // derivatives, so their cross product is zero and normalize() would return NaN. That NaN went into
     // the scene colour and from there into bloom's history, where it never left: a black square that
@@ -120,13 +135,20 @@ void main()
     vec3 n = len2 > 1e-30 ? c * inversesqrt(len2) : vec3(0.0, 1.0, 0.0);
     float shade = 0.45 + 0.55 * abs(dot(n, normalize(vec3(0.35, 1.0, 0.55))));
     vec3 rgb = vColor * shade;
-    // Outlines: darken within about a pixel and a half of an edge. fwidth is taken unconditionally,
+    uint flags = vFace & 0x1Fu;
+    bool mesh = ((vFace >> 5) & 7u) == 0u;
+    float tilt = float(vFace >> 8);
+    if (uFlags.y == 4u && mesh && (flags & 1u) != 0u && abs(n.y) >= 0.99985) // cos(1 degree)
+        rgb = vec3(1.0, 0.55, 0.0);
+    else if (uFlags.y == 5u && tilt > 0.0 && tilt >= uParams.w)
+        rgb = mix(vec3(1.0, 0.9, 0.1), vec3(1.0, 0.1, 0.05), clamp((tilt - 6.0) / 44.0, 0.0, 1.0)) * (0.55 + 0.45 * shade);
+    // Outlines: black within about a pixel and a half of an edge. fwidth is taken unconditionally,
     // since derivatives are undefined inside non-uniform control flow. It is zero on an edge-on face,
     // and smoothstep with equal edges is undefined, hence the floor.
     vec3 width = max(fwidth(vBary), vec3(1e-6));
     vec3 inside = smoothstep(width * 0.5, width * 1.5, vBary);
     float edge = min(min(inside.x, inside.y), inside.z);
-    if (uParams.y > 0.5) rgb *= mix(0.25, 1.0, edge);
+    if (uParams.y > 0.5) rgb *= edge;
     // Premultiplied, with the real alpha in A for the blend (see the navmesh surface's note).
     float alpha = uParams.x;
     // Selected (edit mode): tinted with the selection colour and drawn opaque with a bright rim, so a
@@ -142,6 +164,12 @@ void main()
     private VkShaderModule _colVs, _colFs;
     private VkPipelineLayout _colLayout;
     private VkPipeline _colPipeline;
+    // Set 1: the wallbounce tilt buffer (a one-word placeholder until SetCollisionWallbounce).
+    private VkDescriptorSetLayout _colWbSetLayout;
+    private VkDescriptorPool _colWbPool;
+    private VkDescriptorSet _colWbSet;
+    private VkBuffer _colWbBuffer;
+    private VkDeviceMemory _colWbMemory;
 
     private VkBuffer _colVertexBuffer, _colInstanceBuffer;
     private VkDeviceMemory _colVbMemory, _colInstanceMemory;
@@ -179,6 +207,9 @@ void main()
 
     public Vector4 CollisionSelectionColor { get; set; } = new(1f, 0.85f, 0.2f, 1f);
 
+    /// <summary>Smallest tilt from vertical, in degrees, that <see cref="CollisionColorMode.Wallbounce"/> highlights.</summary>
+    public float WallbounceMinTilt { get; set; } = 20f;
+
     /// <summary>True once collision has been uploaded, so the UI can grey out its toggle on a level
     /// that has none.</summary>
     public bool HasCollision => _colBatches.Length > 0;
@@ -188,9 +219,10 @@ void main()
         _colVs = Module(CollisionVertexGlsl, ShaderStages.Vertex);
         _colFs = Module(CollisionFragmentGlsl, ShaderStages.Fragment);
 
-        VkDescriptorSetLayout setLayout = _descLayout;
+        CreateCollisionWallbounceSet();
+        VkDescriptorSetLayout* setLayouts = stackalloc VkDescriptorSetLayout[2] { _descLayout, _colWbSetLayout };
         var push = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, offset = 0, size = CollisionPushSize };
-        var layoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 1, pSetLayouts = &setLayout, pushConstantRangeCount = 1, pPushConstantRanges = &push };
+        var layoutInfo = new VkPipelineLayoutCreateInfo { setLayoutCount = 2, pSetLayouts = setLayouts, pushConstantRangeCount = 1, pPushConstantRanges = &push };
         VkPipelineLayout layout;
         Check(_api.vkCreatePipelineLayout(&layoutInfo, &layout), "vkCreatePipelineLayout(collision)");
         _colLayout = layout;
@@ -205,18 +237,21 @@ void main()
             VkVertexInputBindingDescription* binds = stackalloc VkVertexInputBindingDescription[2];
             binds[0] = new VkVertexInputBindingDescription { binding = 0, stride = (uint)sizeof(CollisionVertex), inputRate = VkVertexInputRate.Vertex };
             binds[1] = new VkVertexInputBindingDescription { binding = 1, stride = (uint)sizeof(CollisionInstanceData), inputRate = VkVertexInputRate.Instance };
-            VkVertexInputAttributeDescription* attrs = stackalloc VkVertexInputAttributeDescription[8];
+            VkVertexInputAttributeDescription* attrs = stackalloc VkVertexInputAttributeDescription[10];
             attrs[0] = new VkVertexInputAttributeDescription { location = 0, binding = 0, format = VkFormat.R32G32B32Sfloat, offset = 0 };
             attrs[1] = new VkVertexInputAttributeDescription { location = 1, binding = 0, format = VkFormat.R32Uint, offset = 12 };
             for (uint r = 0; r < 4; r++)
                 attrs[r + 2] = new VkVertexInputAttributeDescription { location = r + 2, binding = 1, format = VkFormat.R32G32B32A32Sfloat, offset = r * 16 };
             attrs[6] = new VkVertexInputAttributeDescription { location = 6, binding = 1, format = VkFormat.R32Uint, offset = 64 };
             attrs[7] = new VkVertexInputAttributeDescription { location = 7, binding = 1, format = VkFormat.R32Uint, offset = 68 };
+            // CollisionInstanceData.WallbounceBase / WallbounceOn (see SetCollisionWallbounce).
+            attrs[8] = new VkVertexInputAttributeDescription { location = 8, binding = 1, format = VkFormat.R32Uint, offset = 72 };
+            attrs[9] = new VkVertexInputAttributeDescription { location = 9, binding = 1, format = VkFormat.R32Uint, offset = 76 };
             var vin = new VkPipelineVertexInputStateCreateInfo
             {
                 vertexBindingDescriptionCount = 2,
                 pVertexBindingDescriptions = binds,
-                vertexAttributeDescriptionCount = 8,
+                vertexAttributeDescriptionCount = 10,
                 pVertexAttributeDescriptions = attrs,
             };
 
@@ -295,6 +330,59 @@ void main()
         _colBatches = batches.ToArray();
     }
 
+    private void CreateCollisionWallbounceSet()
+    {
+        var binding = new VkDescriptorSetLayoutBinding { binding = 0, descriptorType = VkDescriptorType.StorageBuffer, descriptorCount = 1, stageFlags = VkShaderStageFlags.Vertex };
+        var layoutInfo = new VkDescriptorSetLayoutCreateInfo { bindingCount = 1, pBindings = &binding };
+        VkDescriptorSetLayout setLayout;
+        Check(_api.vkCreateDescriptorSetLayout(&layoutInfo, &setLayout), "vkCreateDescriptorSetLayout(collisionWallbounce)");
+        _colWbSetLayout = setLayout;
+
+        var size = new VkDescriptorPoolSize { type = VkDescriptorType.StorageBuffer, descriptorCount = 1 };
+        var poolInfo = new VkDescriptorPoolCreateInfo { maxSets = 1, poolSizeCount = 1, pPoolSizes = &size };
+        VkDescriptorPool pool;
+        Check(_api.vkCreateDescriptorPool(&poolInfo, &pool), "vkCreateDescriptorPool(collisionWallbounce)");
+        _colWbPool = pool;
+
+        var alloc = new VkDescriptorSetAllocateInfo { descriptorPool = _colWbPool, descriptorSetCount = 1, pSetLayouts = &setLayout };
+        VkDescriptorSet set;
+        Check(_api.vkAllocateDescriptorSets(&alloc, &set), "vkAllocateDescriptorSets(collisionWallbounce)");
+        _colWbSet = set;
+        UploadCollisionWallbounceWords([0u]);
+    }
+
+    private void UploadCollisionWallbounceWords(ReadOnlySpan<uint> words)
+    {
+        if (_colWbBuffer.Handle != 0) { _api.vkDestroyBuffer(_colWbBuffer); _colWbBuffer = default; }
+        if (_colWbMemory.Handle != 0) { _api.vkFreeMemory(_colWbMemory); _colWbMemory = default; }
+        ulong size = (ulong)Math.Max(words.Length, 1) * sizeof(uint);
+        (_colWbBuffer, _colWbMemory) = CreateBuffer(size, VkBufferUsageFlags.StorageBuffer, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent);
+        void* p;
+        Check(_api.vkMapMemory(_colWbMemory, 0, size, 0, &p), "vkMapMemory(collisionWallbounce)");
+        words.CopyTo(new Span<uint>(p, words.Length));
+        _api.vkUnmapMemory(_colWbMemory);
+        var info = new VkDescriptorBufferInfo { buffer = _colWbBuffer, offset = 0, range = size };
+        var write = new VkWriteDescriptorSet { dstSet = _colWbSet, dstBinding = 0, descriptorCount = 1, descriptorType = VkDescriptorType.StorageBuffer, pBufferInfo = &info };
+        _api.vkUpdateDescriptorSets(1, &write, 0, null);
+    }
+
+    /// <summary>
+    /// Hands the overlay the wallbounce analysis (CollisionWallbounce.Words): one tilt word per placed mesh
+    /// triangle, and per uploaded instance its base into them (already less its shape's first triangle),
+    /// or -1 for an instance without results. Cleared by the next <see cref="SetCollision"/>.
+    /// </summary>
+    public void SetCollisionWallbounce(ReadOnlySpan<uint> words, ReadOnlySpan<int> instanceBases)
+    {
+        if (_colInstanceMapped == null || instanceBases.Length != _colInstanceCount) return;
+        WaitForPendingFrames();
+        UploadCollisionWallbounceWords(words);
+        for (int i = 0; i < instanceBases.Length; i++)
+        {
+            _colInstanceMapped[i].WallbounceBase = unchecked((uint)instanceBases[i]);
+            _colInstanceMapped[i].WallbounceOn = instanceBases[i] == -1 ? 0u : 1u;
+        }
+    }
+
     /// <summary>Rewrites the attribute word of pool vertices [first, first + attributes.Length).</summary>
     public void UpdateCollisionVertexAttributes(uint first, ReadOnlySpan<uint> attributes)
     {
@@ -326,7 +414,7 @@ void main()
 
         VkDescriptorSet s0 = _descSet;
         byte* pc = stackalloc byte[CollisionPushSize];
-        *(Vector4*)pc = new Vector4(Math.Clamp(CollisionOpacity, 0f, 1f), CollisionOutlines ? 1f : 0f, CollisionEditMode ? 1f : 0f, 0f);
+        *(Vector4*)pc = new Vector4(Math.Clamp(CollisionOpacity, 0f, 1f), CollisionOutlines ? 1f : 0f, CollisionEditMode ? 1f : 0f, WallbounceMinTilt);
         uint* words = (uint*)(pc + 16);
         words[0] = (uint)CollisionCategories;
         words[1] = (uint)CollisionColorMode;
@@ -339,6 +427,8 @@ void main()
 
         _api.vkCmdBindPipeline(_cmd, VkPipelineBindPoint.Graphics, _colPipeline);
         _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _colLayout, 0, 1, &s0, 0, null);
+        VkDescriptorSet s1 = _colWbSet;
+        _api.vkCmdBindDescriptorSets(_cmd, VkPipelineBindPoint.Graphics, _colLayout, 1, 1, &s1, 0, null);
         _api.vkCmdPushConstants(_cmd, _colLayout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, CollisionPushSize, pc);
         VkBuffer* buffers = stackalloc VkBuffer[2] { _colVertexBuffer, _colInstanceBuffer };
         ulong* offsets = stackalloc ulong[2] { 0, 0 };
@@ -363,6 +453,10 @@ void main()
     private void DestroyCollisionPipeline()
     {
         DestroyCollisionBuffers();
+        if (_colWbBuffer.Handle != 0) _api.vkDestroyBuffer(_colWbBuffer);
+        if (_colWbMemory.Handle != 0) _api.vkFreeMemory(_colWbMemory);
+        if (_colWbPool.Handle != 0) _api.vkDestroyDescriptorPool(_colWbPool);
+        if (_colWbSetLayout.Handle != 0) _api.vkDestroyDescriptorSetLayout(_colWbSetLayout);
         if (_colPipeline.Handle != 0) _api.vkDestroyPipeline(_colPipeline);
         if (_colLayout.Handle != 0) _api.vkDestroyPipelineLayout(_colLayout);
         if (_colVs.Handle != 0) _api.vkDestroyShaderModule(_colVs);

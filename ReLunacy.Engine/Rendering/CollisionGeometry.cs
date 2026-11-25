@@ -15,6 +15,12 @@ public enum CollisionColorMode
     TriangleFlags = 2,
     /// <summary>One colour per value of the instance's shape flags.</summary>
     InstanceFlags = 3,
+    /// <summary>ToD wrench boost spots: mesh faces with triangle flag bit 0 that lie within 1 degree of
+    /// level in world space (Y up), in orange; the rest dim grey.</summary>
+    WrenchBoost = 4,
+    /// <summary>Faces that can give a glitched wallbounce (CollisionWallbounce), yellow to red by tilt from
+    /// vertical, at or above the minimum tilt; the rest dim grey. Needs the analysis, run on first use.</summary>
+    Wallbounce = 5,
 }
 
 /// <summary>The collision categories the overlay tells apart, and can hide one by one. The values are
@@ -47,10 +53,11 @@ public enum CollisionPrimitiveKinds : uint
 public readonly record struct CollisionVertex(Vector3 Position, uint Attributes);
 
 /// <summary>One placed shape: its world matrix; attributes bit 0 = Tie, bit 1 = selected (collision
-/// editor), bit 2 = hidden by the instance-flag filter, bits 16-31 = shape flags; and the regions it
-/// belongs to, bit N for the Nth collision passed to <see cref="CollisionGeometry.Build"/>.</summary>
+/// editor), bit 2 = hidden by the instance-flag filter, bits 16-31 = shape flags; the regions it
+/// belongs to, bit N for the Nth collision passed to <see cref="CollisionGeometry.Build"/>; and its
+/// wallbounce results, if any (VulkanRenderer.SetCollisionWallbounce).</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
-public record struct CollisionInstanceData(Matrix4x4 Transform, uint Attributes, uint RegionMask, uint Pad1, uint Pad2);
+public record struct CollisionInstanceData(Matrix4x4 Transform, uint Attributes, uint RegionMask, uint WallbounceBase, uint WallbounceOn);
 
 /// <summary>One instanced draw: a shape's vertex range, drawn for a run of instances.</summary>
 public readonly record struct CollisionBatch(uint FirstVertex, uint VertexCount, uint FirstInstance, uint InstanceCount);
@@ -572,9 +579,23 @@ public static class CollisionGeometry
         return 0.95f * Vector3.Lerp(Vector3.One, new Vector3(r, g, b), 0.7f);
     }
 
-    /// <summary>Colour of a flag value: no flags is a dark grey, so the flagged faces stand out.
-    /// Mirrors the shader's flagColour.</summary>
-    public static Vector3 FlagColor(int flags) => flags == 0 ? new Vector3(0.3f) : IdColor(flags);
+    /// <summary>Colour of a triangle material in <see cref="CollisionColorMode.Material"/>: hues spread by the
+    /// golden ratio, saturation 0.6, value 0.95 (this fork's palette, kept from before the merge with
+    /// upstream's overlay). Mirrors the shader's materialColour.</summary>
+    public static Vector3 MaterialColor(int material)
+    {
+        float hue = (material * 0.618034f) % 1f;
+        float r = Math.Clamp(MathF.Abs(hue * 6f - 3f) - 1f, 0f, 1f);
+        float g = Math.Clamp(2f - MathF.Abs(hue * 6f - 2f), 0f, 1f);
+        float b = Math.Clamp(2f - MathF.Abs(hue * 6f - 4f), 0f, 1f);
+        return 0.95f * Vector3.Lerp(Vector3.One, new Vector3(r, g, b), 0.6f);
+    }
+
+    /// <summary>Colour of a triangle's flag bits: bit 0 red, bit 1 green, bit 2 blue, mixed when several are
+    /// set; no flags is a dark grey, so the flagged faces stand out. Mirrors the shader's flagColour.</summary>
+    public static Vector3 FlagColor(int flags) => flags == 0
+        ? new Vector3(0.3f)
+        : new Vector3((flags & 1) != 0 ? 1f : 0.15f, (flags & 2) != 0 ? 1f : 0.15f, (flags & 4) != 0 ? 1f : 0.15f);
 
     /// <summary>Colours of <see cref="CollisionColorMode.Type"/>, by shape kind (0 = mesh). Mirrors
     /// the shader's typeColour.</summary>

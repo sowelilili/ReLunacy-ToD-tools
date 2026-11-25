@@ -85,6 +85,9 @@ public class EditorSettings
     public ReLunacy.Engine.Rendering.CollisionPrimitiveKinds CollisionPrimitiveKinds;
     public float CollisionOpacity;
     public bool CollisionOutlines;
+    // Smallest tilt from vertical (degrees) the wallbounce colour mode highlights. 20 by default: below
+    // that, most of what passes is gently tilted rock that only boosts a little (docs/reverse/tod_wallbounce.md).
+    public float WallbounceMinTilt;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -226,11 +229,13 @@ public class EditorSettings
         RenderVolumes = true;
         RenderNavmesh = false;
         RenderCollision = false;
-        CollisionColorMode = ReLunacy.Engine.Rendering.CollisionColorMode.Type;
+        // This fork's defaults: coloured by material and opaque, as the collision view was before the merge.
+        CollisionColorMode = ReLunacy.Engine.Rendering.CollisionColorMode.Material;
         CollisionCategories = ReLunacy.Engine.Rendering.CollisionCategories.All;
         CollisionPrimitiveKinds = ReLunacy.Engine.Rendering.CollisionPrimitiveKinds.All;
-        CollisionOpacity = 0.85f;
+        CollisionOpacity = 1f;
         CollisionOutlines = true;
+        WallbounceMinTilt = 20f;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;

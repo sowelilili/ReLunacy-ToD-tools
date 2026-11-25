@@ -668,6 +668,19 @@ public sealed class CollisionEditor
                     }
                 ImGui.EndCombo();
             }
+            if (settings.CollisionColorMode == CollisionColorMode.WrenchBoost)
+                ImGui.TextColored(new Vector4(1f, 0.55f, 0f, 1f), LM.Get("GUI_Label_CollisionWrenchBoost"));
+            if (settings.CollisionColorMode == CollisionColorMode.Wallbounce)
+            {
+                ImGui.SetNextItemWidth(160f);
+                ImGui.SliderFloat(LM.Get("GUI_Label_WallbounceMinTilt"), ref settings.WallbounceMinTilt,
+                    MathF.Ceiling(CollisionWallbounce.BoostThresholdDegrees), 60f, "%.0f deg");
+                // Saved once the drag ends rather than on every frame of it.
+                persist |= ImGui.IsItemDeactivatedAfterEdit();
+                ImGui.TextColored(new Vector4(1f, 0.9f, 0.1f, 1f), LM.Get("GUI_Label_WallbounceLowTilt"));
+                ImGui.TextColored(new Vector4(1f, 0.1f, 0.05f, 1f), LM.Get("GUI_Label_WallbounceHighTilt"));
+                if (WallbounceJob.Status.Length > 0) ImGui.TextDisabled(WallbounceJob.Status);
+            }
             ImGui.SetNextItemWidth(160f);
             persist |= ImGui.SliderFloat(LM.Get("GUI_MenuItem_CollisionOpacity"), ref settings.CollisionOpacity, 0.05f, 1f, "%.2f");
             persist |= ImGui.Checkbox(LM.Get("GUI_MenuItem_CollisionOutlines"), ref settings.CollisionOutlines);
@@ -679,7 +692,7 @@ public sealed class CollisionEditor
         if (summary.Materials.Count > 0 && ImGui.CollapsingHeader(LM.Get("GUI_Collision_FilterMaterial")))
         {
             DrawValueFilter("mat", summary.Materials.OrderBy(kv => kv.Key).Select(kv => (kv.Key, kv.Value)),
-                v => CollisionGeometry.IdColor(v), v => LM.Get("GUI_Label_CollisionMaterial", v.Key, v.Value),
+                v => CollisionGeometry.MaterialColor(v), v => LM.Get("GUI_Label_CollisionMaterial", v.Key, v.Value),
                 v => (_materialMask[v >> 5] & (1u << (v & 31))) != 0,
                 (v, on) => _materialMask[v >> 5] = on ? _materialMask[v >> 5] | (1u << (v & 31)) : _materialMask[v >> 5] & ~(1u << (v & 31)));
             ImGui.TextDisabled(LM.Get("GUI_Label_CollisionMaterialNote"));

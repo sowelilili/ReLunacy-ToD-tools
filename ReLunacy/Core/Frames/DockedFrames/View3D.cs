@@ -890,6 +890,11 @@ public class View3D : DockedFrame
                 vkStage.CollisionRegionMask = CollisionRegionMask();
                 _collisionEditor.RegionMask = vkStage.CollisionRegionMask;
                 _collisionEditor.Apply(vkStage, Program.Settings);
+                vkStage.WallbounceMinTilt = Program.Settings.WallbounceMinTilt;
+                // The wallbounce colours need their analysis: started (or loaded from cache) the first time the
+                // mode is on for this collision, and handed to the renderer once it is in.
+                if (vkStage.CollisionVisible && Program.Settings.CollisionColorMode == Engine.Rendering.CollisionColorMode.Wallbounce)
+                    Core.Collision.WallbounceJob.Update(_collisionEditor.Scene, vkStage);
                 SkyRenderOptions.PrepareScene(Core.LunaWindow.Instance.Level, Core.LunaWindow.Instance.AssetManager);
 
                 // BuildVolumeList fills both the wireframes and the faces, so it runs before either is handed over.
