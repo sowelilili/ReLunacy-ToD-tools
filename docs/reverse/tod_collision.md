@@ -3,8 +3,9 @@
 Level collision for ToD (NPEA00452). One file per level, next to `main.dat`. It is **not** an IGHW
 container: it is a raw big-endian blob that the game relocates in place after loading.
 
-Parser: `ReLunacy.Engine/Assets/Collision/TodCollision.cs`. Drawn through the Render menu's
-*Tie Collision* / *World Collision* toggles (`Rendering/CollisionGeometry.cs`).
+This is the first decoding, kept for its EBOOT trail. ReLunacy now reads collision for every game with
+upstream's `ReLunacy.Engine/Assets/Collision/LevelCollision.cs`, documented in `collision.md`, which
+re-checks and extends what is below.
 
 ## EBOOT
 

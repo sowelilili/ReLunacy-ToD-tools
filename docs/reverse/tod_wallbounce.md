@@ -98,10 +98,14 @@ the game's live wall normal to the third decimal.
 
 ## In ReLunacy
 
-Render > Collision Colours > Show Glitched Wallbounces runs the same check
-(`ReLunacy.Engine/Assets/Collision/WallbounceAnalysis.cs`, a parallel C# port of the numpy script:
-1.0 s for Stratus City on 12 threads, against 289 s in numpy) and colours passing triangles yellow
-to red by tilt, above a minimum tilt set by a slider (20 degrees by default). It runs once per level,
-the first time the mode is used, and caches the result in
-`%LOCALAPPDATA%\ReLunacy\Cache\wallbounce-v2-<hash of collision.dat>.bin` (version 2 uses outward
-normals; version 1 files are ignored).
+The viewport's collision panel, Display > Colour by > *Glitched wallbounces (ToD)*, runs the same check
+(`ReLunacy.Engine/Rendering/CollisionWallbounce.cs`, a parallel C# port of the numpy script: under a
+second for Stratus City on 12 threads, against 289 s in numpy) and colours passing faces yellow to red
+by tilt, above a minimum tilt set by a slider (20 degrees by default). It runs on the overlay's
+collision scene (placements merged across regions, so Stratus City reads 18,005 rather than 18,077), the
+first time the mode is on for a level, and caches the result in
+`%LOCALAPPDATA%\ReLunacy\Cache\wallbounce-v3-<hash of the collision scene>.bin`. An edit in the collision
+editor changes the hash, so edited collision is recomputed; older versions' files are ignored.
+
+*Wrench boost spots (ToD)* in the same list marks faces with triangle flag bit 0 that lie within a
+degree of level, in world space.
