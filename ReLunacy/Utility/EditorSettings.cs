@@ -88,6 +88,8 @@ public class EditorSettings
     // Smallest tilt from vertical (degrees) the wallbounce colour mode highlights. 20 by default: below
     // that, most of what passes is gently tilted rock that only boosts a little (docs/reverse/tod_wallbounce.md).
     public float WallbounceMinTilt;
+    // Opacity of the level's Ties and UFrags (viewport toolbar), so the collision shows through them.
+    public float TieUFragOpacity;
     public bool RenderBoundingSpheres;
     public bool RenderSky;
     public bool GameShaders;
@@ -236,6 +238,7 @@ public class EditorSettings
         CollisionOpacity = 1f;
         CollisionOutlines = true;
         WallbounceMinTilt = 20f;
+        TieUFragOpacity = 1f;
         RenderBoundingSpheres = false;
         RenderSky = true;
         GameShaders = true;

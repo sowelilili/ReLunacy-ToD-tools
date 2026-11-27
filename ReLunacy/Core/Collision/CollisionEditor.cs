@@ -620,7 +620,7 @@ public sealed class CollisionEditor
 
     // ---------------------------------------------------------------- panel
 
-    /// <summary>The panel hanging from the toolbar's collision button.</summary>
+    /// <summary>The panel hanging from the toolbar's collision settings button.</summary>
     public void DrawPanel(ViewportOverlay overlay, float anchorLeft, EditorSettings settings, ref Entity? selectedEntity)
     {
         if (!PanelOpen || !overlay.BeginPanel("collision", new Vector2(360f, 0f), anchorLeft)) return;
@@ -634,9 +634,7 @@ public sealed class CollisionEditor
         }
 
         bool persist = false;
-        if (ImGui.Checkbox(LM.Get("GUI_Collision_Show"), ref em.renderCollision))
-            MenuBar.RenderMenuDraw.PersistRenderSettings();
-        ImGui.SameLine();
+        // Showing the overlay is the toolbar button beside this panel's.
         ImGui.TextDisabled(LM.Get("GUI_Label_CollisionSummary", summary.Instances, summary.Shapes, summary.PlacedTriangles));
 
         // Edit mode.

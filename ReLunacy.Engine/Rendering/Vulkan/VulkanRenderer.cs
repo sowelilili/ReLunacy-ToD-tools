@@ -548,6 +548,9 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private readonly int[] _visibleSoftEdge;
     private readonly int[] _visibleBillboard;
     private int _visOpaqueCount, _visTransCount, _visAddCount, _visSoftCount, _visBillCount;
+    // Opaque Tie / UFrag draws taken out of the opaque pass while TieUFragOpacity < 1 (DrawFaded).
+    private int[] _visibleFaded = [];
+    private int _visFadedCount;
 
     private uint _width, _height;
     private readonly Texture _envCube;
@@ -630,6 +633,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
     private VkPipeline _pipelineOpaqueCull, _pipelineAccumCull, _pipelineSoftEdgeDepthCull, _pipelineAdditiveCull;
     private VkPipeline _pipelineOpaqueCullCw, _pipelineAccumCullCw, _pipelineSoftEdgeDepthCullCw, _pipelineAdditiveCullCw;
     private VkPipeline _pipelineOutlineMask, _pipelineOutlineRim, _pipelineBillboard;
+    private VkPipeline _pipelineFade, _pipelineFadeCull, _pipelineFadeCullCw;
+    private VkPipeline _pipelineFadeDepth, _pipelineFadeDepthCull, _pipelineFadeDepthCullCw;
 
     // GPU picking: a PickTargetSize-square colour+depth target, its own one-shot command buffer and
     // fence, and a host-visible buffer the result is copied into. Sized once, never resized: the pick
@@ -1651,6 +1656,12 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         _pipelineAdditive = CreateLitPipeline(LitKind.Additive, _fsAdditive);
         _pipelineAdditiveCull = CreateLitPipeline(LitKind.AdditiveCull, _fsAdditive);
         _pipelineAdditiveCullCw = CreateLitPipeline(LitKind.AdditiveCullCw, _fsAdditive);
+        _pipelineFade = CreateLitPipeline(LitKind.Fade, _fsOpaque);
+        _pipelineFadeCull = CreateLitPipeline(LitKind.FadeCull, _fsOpaque);
+        _pipelineFadeCullCw = CreateLitPipeline(LitKind.FadeCullCw, _fsOpaque);
+        _pipelineFadeDepth = CreateLitPipeline(LitKind.FadeDepth, _fsOpaque);
+        _pipelineFadeDepthCull = CreateLitPipeline(LitKind.FadeDepthCull, _fsOpaque);
+        _pipelineFadeDepthCullCw = CreateLitPipeline(LitKind.FadeDepthCullCw, _fsOpaque);
         RegisterLitKinds();
 
         _volumeVs = Module(VolumeVertexGlsl, ShaderStages.Vertex);
@@ -1961,6 +1972,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         // are not cleared away. Collision first: it writes depth, and the navmesh floats over the floor
         // collision it was built on, so it stays visible on top.
         DrawCollision();
+        DrawFaded();
         DrawNavmesh();
         _api.vkCmdEndRenderPass(_cmd);
 
@@ -2110,6 +2122,45 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         }
     }
 
+    /// <summary>Opacity of the level's Ties and UFrags (viewport toolbar). Below 1 their opaque draws
+    /// leave the opaque pass and are blended over the finished scene after the collision overlay, so
+    /// the collision shows through them.</summary>
+    public float TieUFragOpacity { get; set; } = 1f;
+
+    private const byte FadedKinds = (byte)(SceneEntityKind.Tie | SceneEntityKind.UFrag);
+
+    /// <summary>Moves the visible opaque Tie / UFrag draws to _visibleFaded while they are faded.</summary>
+    private void SplitFaded()
+    {
+        _visFadedCount = 0;
+        if (TieUFragOpacity >= 1f) return;
+        if (_visibleFaded.Length != _instanceCount) _visibleFaded = new int[_instanceCount];
+        int kept = 0;
+        for (int v = 0; v < _visOpaqueCount; v++)
+        {
+            int i = _visibleOpaque[v];
+            if ((_instKind[i] & FadedKinds) != 0) _visibleFaded[_visFadedCount++] = i;
+            else _visibleOpaque[kept++] = i;
+        }
+        _visOpaqueCount = kept;
+        // Fully transparent: drawn by neither pass.
+        if (TieUFragOpacity <= 0f) _visFadedCount = 0;
+    }
+
+    /// <summary>The faded Ties / UFrags, like the collision overlay's opacity: a depth-only pass keeps
+    /// each pixel's nearest surface, then the colour pass blends just that surface over what is already
+    /// drawn (collision included) with the blend constant as its alpha.</summary>
+    private void DrawFaded()
+    {
+        if (_visFadedCount == 0) return;
+        BindLitState();
+        DrawVisible(_pipelineFadeDepth, _visibleFaded, _visFadedCount);
+        float* constants = stackalloc float[4];
+        constants[0] = constants[1] = constants[2] = constants[3] = Math.Clamp(TieUFragOpacity, 0f, 1f);
+        _api.vkCmdSetBlendConstants(_cmd, constants);
+        DrawVisible(_pipelineFade, _visibleFaded, _visFadedCount);
+    }
+
     private void BindLitState()
     {
         VkDescriptorSet set0 = _descSet;
@@ -2143,6 +2194,8 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         if (pipeline.Handle == _pipelineAccum.Handle) return mirrored ? _pipelineAccumCullCw : _pipelineAccumCull;
         if (pipeline.Handle == _pipelineSoftEdgeDepth.Handle) return mirrored ? _pipelineSoftEdgeDepthCullCw : _pipelineSoftEdgeDepthCull;
         if (pipeline.Handle == _pipelineAdditive.Handle) return mirrored ? _pipelineAdditiveCullCw : _pipelineAdditiveCull;
+        if (pipeline.Handle == _pipelineFade.Handle) return mirrored ? _pipelineFadeCullCw : _pipelineFadeCull;
+        if (pipeline.Handle == _pipelineFadeDepth.Handle) return mirrored ? _pipelineFadeDepthCullCw : _pipelineFadeDepthCull;
         return pipeline;
     }
 
@@ -2282,6 +2335,7 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
                 }
                 _visOpaqueCount = kept;
             }
+            SplitFaded();
             _visTransCount = CullRange(_overStart, _addStart, _visibleTranslucent);
             _visAddCount = CullRange(_addStart, _softStart, _visibleAdditive);
             _visSoftCount = CullRange(_softStart, _billStart, _visibleSoftEdge);
@@ -2715,6 +2769,12 @@ void main() { gl_Position = uMvp * (uModel * vec4(inPos, 1.0)); }";
         _api.vkDestroyPipeline(_pipelineAdditive);
         _api.vkDestroyPipeline(_pipelineAdditiveCull);
         _api.vkDestroyPipeline(_pipelineAdditiveCullCw);
+        _api.vkDestroyPipeline(_pipelineFade);
+        _api.vkDestroyPipeline(_pipelineFadeCull);
+        _api.vkDestroyPipeline(_pipelineFadeCullCw);
+        _api.vkDestroyPipeline(_pipelineFadeDepth);
+        _api.vkDestroyPipeline(_pipelineFadeDepthCull);
+        _api.vkDestroyPipeline(_pipelineFadeDepthCullCw);
         _api.vkDestroyPipelineLayout(_layout);
         _api.vkDestroyPipelineLayout(_resolveLayout);
         _api.vkDestroyPipelineLayout(_outlineLayout);

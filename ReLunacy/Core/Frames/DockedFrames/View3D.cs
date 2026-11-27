@@ -212,6 +212,7 @@ public class View3D : DockedFrame
 
     private bool showClipControls;
     private bool showIconControls;
+    private bool showGeometryOpacity;
 
     /// <summary>Toolbar over the 3D viewport, same component the asset preview uses. Holds the
     /// switches flipped often enough that reopening a menu each time gets in the way: clip, the
@@ -230,7 +231,9 @@ public class View3D : DockedFrame
         overlay.Gap();
         bool changed = overlay.ToggleButton(Icons.Cube, ref em.renderMobys, LM.Get("GUI_Viewport_Mobys"));
         changed |= overlay.ToggleButton(Icons.Cubes, ref em.renderTies, LM.Get("GUI_Viewport_Ties"));
+        float geometryAnchor = overlay.LastButtonLeft;
         changed |= overlay.ToggleButton(Icons.MountainSun, ref em.renderUFrags, LM.Get("GUI_Viewport_UFrags"));
+        overlay.ToggleButton(Icons.CircleHalfStroke, ref showGeometryOpacity, LM.Get("GUI_Viewport_TieUFragOpacity"));
         changed |= overlay.ToggleButton(Icons.VectorSquare, ref em.renderVolumes, LM.Get("GUI_Viewport_Volumes"));
         overlay.ToggleButton(Icons.Filter, ref _volumePanel.Open, LM.Get("GUI_Viewport_VolumeFilters"));
         float volumeAnchor = overlay.LastButtonLeft;
@@ -292,15 +295,18 @@ public class View3D : DockedFrame
         if (overlay.ToggleButton(Icons.Route, ref em.renderNavmesh,
                 LM.Get(hasNavmesh ? "GUI_Viewport_Navmesh" : "GUI_Viewport_NoNavmesh"), enabled: hasNavmesh))
             MenuBar.RenderMenuDraw.PersistRenderSettings();
-        // The collision button opens its panel (visibility, filters, edit mode) rather than toggling the
-        // overlay itself; the panel stays until the button is pressed again.
+        // The collision button toggles the overlay; the one beside it opens its panel (colours, filters,
+        // edit mode), which stays until that button is pressed again.
         bool hasCollision = em.CollisionSummary != null;
         if (!hasCollision) _collisionEditor.PanelOpen = false;
-        overlay.ToggleButton(Icons.DrawPolygon, ref _collisionEditor.PanelOpen,
-            LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision);
+        if (overlay.ToggleButton(Icons.DrawPolygon, ref em.renderCollision,
+                LM.Get(hasCollision ? "GUI_Viewport_Collision" : "GUI_Viewport_NoCollision"), enabled: hasCollision))
+            MenuBar.RenderMenuDraw.PersistRenderSettings();
+        float collisionAnchor = overlay.LastButtonLeft;
+        overlay.ToggleButton(Icons.Sliders, ref _collisionEditor.PanelOpen,
+            LM.Get("GUI_Viewport_CollisionSettings"), enabled: hasCollision);
         // Edit mode takes the left button over; it does not outlive the panel that shows it is on.
         if (!_collisionEditor.PanelOpen) _collisionEditor.EditMode = false;
-        float collisionAnchor = overlay.LastButtonLeft;
 
         if (showClipControls && overlay.BeginPanel("clip", new Vector2(280f, 0f), clipAnchor))
         {
@@ -308,6 +314,16 @@ public class View3D : DockedFrame
             ImGui.SetNextItemWidth(-1f);
             if (ImGui.SliderFloat("##far", ref farPlane, 1f, 100000f, LM.Get("GUI_Frame_AssetViewer_FarClip"), ImGuiSliderFlags.Logarithmic))
                 Program.Settings.RenderDistance = farPlane;
+            overlay.EndPanel();
+        }
+
+        if (showGeometryOpacity && overlay.BeginPanel("geometry", new Vector2(280f, 0f), geometryAnchor))
+        {
+            ImGui.SetNextItemWidth(-1f);
+            ImGui.SliderFloat("##tieufragopacity", ref settings.TieUFragOpacity, 0f, 1f,
+                LM.Get("GUI_Viewport_TieUFragOpacityValue"), ImGuiSliderFlags.AlwaysClamp);
+            // Saved once the drag ends rather than on every frame of it.
+            if (ImGui.IsItemDeactivatedAfterEdit()) settings.SaveSettingsToFile();
             overlay.EndPanel();
         }
 
@@ -886,6 +902,7 @@ public class View3D : DockedFrame
                 vkStage.CollisionColorMode = Program.Settings.CollisionColorMode;
                 vkStage.CollisionCategories = Program.Settings.CollisionCategories;
                 vkStage.CollisionOpacity = Program.Settings.CollisionOpacity;
+                vkStage.TieUFragOpacity = Program.Settings.TieUFragOpacity;
                 vkStage.CollisionOutlines = Program.Settings.CollisionOutlines;
                 vkStage.CollisionRegionMask = CollisionRegionMask();
                 _collisionEditor.RegionMask = vkStage.CollisionRegionMask;

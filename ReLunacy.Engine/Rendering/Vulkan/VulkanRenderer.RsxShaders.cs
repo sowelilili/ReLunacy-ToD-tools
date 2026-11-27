@@ -35,6 +35,10 @@ public sealed unsafe partial class VulkanRenderer
         Accum, AccumCull, AccumCullCw,
         SoftEdgeDepth, SoftEdgeDepthCull, SoftEdgeDepthCullCw,
         Additive, AdditiveCull, AdditiveCullCw,
+        // Faded Ties / UFrags (VulkanRenderer.DrawFaded): blended by the blend constant over the
+        // depth their depth-only pass laid down.
+        Fade, FadeCull, FadeCullCw,
+        FadeDepth, FadeDepthCull, FadeDepthCullCw,
     }
 
     private const int RouteProbe = 0, RouteBaked = 1, RoutePrelit = 2;
@@ -142,6 +146,8 @@ public sealed unsafe partial class VulkanRenderer
         Add(_pipelineAccum, LitKind.Accum); Add(_pipelineAccumCull, LitKind.AccumCull); Add(_pipelineAccumCullCw, LitKind.AccumCullCw);
         Add(_pipelineSoftEdgeDepth, LitKind.SoftEdgeDepth); Add(_pipelineSoftEdgeDepthCull, LitKind.SoftEdgeDepthCull); Add(_pipelineSoftEdgeDepthCullCw, LitKind.SoftEdgeDepthCullCw);
         Add(_pipelineAdditive, LitKind.Additive); Add(_pipelineAdditiveCull, LitKind.AdditiveCull); Add(_pipelineAdditiveCullCw, LitKind.AdditiveCullCw);
+        Add(_pipelineFade, LitKind.Fade); Add(_pipelineFadeCull, LitKind.FadeCull); Add(_pipelineFadeCullCw, LitKind.FadeCullCw);
+        Add(_pipelineFadeDepth, LitKind.FadeDepth); Add(_pipelineFadeDepthCull, LitKind.FadeDepthCull); Add(_pipelineFadeDepthCullCw, LitKind.FadeDepthCullCw);
     }
 
     /// <summary>One lit pipeline of the given kind - the generic ones and the translated shaders' share
@@ -150,8 +156,9 @@ public sealed unsafe partial class VulkanRenderer
     {
         byte* entry = stackalloc byte[] { (byte)'m', (byte)'a', (byte)'i', (byte)'n', 0 };
         var mask = VkColorComponentFlags.R | VkColorComponentFlags.G | VkColorComponentFlags.B | VkColorComponentFlags.A;
-        VkDynamicState* dyn = stackalloc VkDynamicState[2] { VkDynamicState.Viewport, VkDynamicState.Scissor };
-        var dynState = new VkPipelineDynamicStateCreateInfo { dynamicStateCount = 2, pDynamicStates = dyn };
+        bool fade = kind is LitKind.Fade or LitKind.FadeCull or LitKind.FadeCullCw;
+        VkDynamicState* dyn = stackalloc VkDynamicState[3] { VkDynamicState.Viewport, VkDynamicState.Scissor, VkDynamicState.BlendConstants };
+        var dynState = new VkPipelineDynamicStateCreateInfo { dynamicStateCount = fade ? 3u : 2u, pDynamicStates = dyn };
         var viewportState = new VkPipelineViewportStateCreateInfo { viewportCount = 1, scissorCount = 1 };
         var multisample = new VkPipelineMultisampleStateCreateInfo { rasterizationSamples = VkSampleCountFlags.Count1 };
         var inputAssembly = new VkPipelineInputAssemblyStateCreateInfo { topology = VkPrimitiveTopology.TriangleList };
@@ -173,10 +180,16 @@ public sealed unsafe partial class VulkanRenderer
         attrs[7] = new VkVertexInputAttributeDescription { location = 7, binding = 0, format = VkFormat.R32G32B32A32Sfloat, offset = 88 };
         var vertexInput = new VkPipelineVertexInputStateCreateInfo { vertexBindingDescriptionCount = 1, pVertexBindingDescriptions = &vbinding, vertexAttributeDescriptionCount = 8, pVertexAttributeDescriptions = attrs };
 
-        bool opaque = kind is LitKind.Opaque or LitKind.OpaqueCull or LitKind.OpaqueCullCw;
+        // The faded kinds are opaque draws (same vertex module, no depth bias), so the colour pass lands
+        // on exactly the depth its depth-only pass wrote.
+        bool opaque = kind is LitKind.Opaque or LitKind.OpaqueCull or LitKind.OpaqueCullCw
+            or LitKind.Fade or LitKind.FadeCull or LitKind.FadeCullCw
+            or LitKind.FadeDepth or LitKind.FadeDepthCull or LitKind.FadeDepthCullCw;
         bool cull = kind is LitKind.OpaqueCull or LitKind.OpaqueCullCw or LitKind.AccumCull or LitKind.AccumCullCw
-            or LitKind.SoftEdgeDepthCull or LitKind.SoftEdgeDepthCullCw or LitKind.AdditiveCull or LitKind.AdditiveCullCw;
-        bool cw = kind is LitKind.OpaqueCullCw or LitKind.AccumCullCw or LitKind.SoftEdgeDepthCullCw or LitKind.AdditiveCullCw;
+            or LitKind.SoftEdgeDepthCull or LitKind.SoftEdgeDepthCullCw or LitKind.AdditiveCull or LitKind.AdditiveCullCw
+            or LitKind.FadeCull or LitKind.FadeCullCw or LitKind.FadeDepthCull or LitKind.FadeDepthCullCw;
+        bool cw = kind is LitKind.OpaqueCullCw or LitKind.AccumCullCw or LitKind.SoftEdgeDepthCullCw or LitKind.AdditiveCullCw
+            or LitKind.FadeCullCw or LitKind.FadeDepthCullCw;
         var raster = new VkPipelineRasterizationStateCreateInfo
         {
             polygonMode = VkPolygonMode.Fill,
@@ -211,6 +224,18 @@ public sealed unsafe partial class VulkanRenderer
                 atts[1] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.Zero, dstColorBlendFactor = VkBlendFactor.OneMinusSrcColor, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.Zero, dstAlphaBlendFactor = VkBlendFactor.OneMinusSrcColor, alphaBlendOp = VkBlendOp.Add, colorWriteMask = VkColorComponentFlags.R | VkColorComponentFlags.G };
                 blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 2, pAttachments = atts };
                 pass = _rpAccum;
+                break;
+            case LitKind.FadeDepth or LitKind.FadeDepthCull or LitKind.FadeDepthCullCw:
+                depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = true, depthCompareOp = VkCompareOp.GreaterOrEqual };
+                atts[0] = new VkPipelineColorBlendAttachmentState { blendEnable = false, colorWriteMask = 0 };
+                blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = atts };
+                pass = _rpOpaque;
+                break;
+            case LitKind.Fade or LitKind.FadeCull or LitKind.FadeCullCw:
+                depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = false, depthCompareOp = VkCompareOp.GreaterOrEqual };
+                atts[0] = new VkPipelineColorBlendAttachmentState { blendEnable = true, srcColorBlendFactor = VkBlendFactor.ConstantAlpha, dstColorBlendFactor = VkBlendFactor.OneMinusConstantAlpha, colorBlendOp = VkBlendOp.Add, srcAlphaBlendFactor = VkBlendFactor.ConstantAlpha, dstAlphaBlendFactor = VkBlendFactor.OneMinusConstantAlpha, alphaBlendOp = VkBlendOp.Add, colorWriteMask = mask };
+                blend = new VkPipelineColorBlendStateCreateInfo { attachmentCount = 1, pAttachments = atts };
+                pass = _rpOpaque;
                 break;
             case LitKind.SoftEdgeDepth or LitKind.SoftEdgeDepthCull or LitKind.SoftEdgeDepthCullCw:
                 depth = new VkPipelineDepthStencilStateCreateInfo { depthTestEnable = true, depthWriteEnable = true, depthCompareOp = VkCompareOp.GreaterOrEqual };

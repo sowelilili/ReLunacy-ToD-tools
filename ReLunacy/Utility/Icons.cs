@@ -64,6 +64,8 @@ public static class Icons
     public const string Fire = "\uf06d";  // effects
     public const string Globe = "\uf0ac";  // sector boundary
     public const string Plane = "\uf072";  // fly height
+    public const string CircleHalfStroke = "\uf042";  // Tie / UFrag opacity
+    public const string Sliders = "\uf1de";  // collision settings
 
     // Lighting
     public const string Lightbulb = "\uf0eb";
